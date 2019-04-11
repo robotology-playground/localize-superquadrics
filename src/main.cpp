@@ -49,6 +49,7 @@
 #include <vtkInteractorStyleSwitch.h>
 
 #include "nlp.h"
+ #include "src/Localizer_IDL.h"
 
 using namespace std;
 using namespace yarp::os;
@@ -201,9 +202,11 @@ public:
     Superquadric(const Vector &r, const vector<double> &color,
                  const double opacity)
     {
-        double bx=r[4];
-        double by=r[6];
-        double bz=r[5];
+        // TODO Check This
+        // Now r is a 11D vector
+        double bx=r[6];
+        double by=r[7];
+        double bz=r[8];
 
         vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
         vtk_superquadric->ToroidalOff();
@@ -211,8 +214,8 @@ public:
         vtk_superquadric->SetCenter(zeros(3).data());
 
         vtk_superquadric->SetScale(bx,by,bz);
-        vtk_superquadric->SetPhiRoundness(r[7]);
-        vtk_superquadric->SetThetaRoundness(r[8]);
+        vtk_superquadric->SetPhiRoundness(r[9]); // roundness along model z axis (vtk y axis)
+        vtk_superquadric->SetThetaRoundness(r[10]); // common roundness along model x and y axes (vtk x and
 
         vtk_sample=vtkSmartPointer<vtkSampleFunction>::New();
         vtk_sample->SetSampleDimensions(50,50,50);
@@ -236,8 +239,11 @@ public:
 
         vtk_transform=vtkSmartPointer<vtkTransform>::New();
         vtk_transform->Translate(r.subVector(0,2).data());
-        vtk_transform->RotateZ(r[3]);
-        vtk_transform->RotateX(-90.0);
+        // TODO Check This
+        // Now r is a 11D vector and orientation is general
+        Vector axisangle = dcm2axis(euler2dcm(r.subVector(3,5)));
+        vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
+        vtk_transform->RotateX(-90.0); // rotate to invert y and z
         vtk_actor->SetUserTransform(vtk_transform);
     }
 
@@ -249,26 +255,32 @@ public:
         //       To get a good display, directions of axes y and z need to be swapped
         //       => parameters for y and z are inverted and a rotation of -90 degrees around x is added
 
-        double bx=r[4];
-        double by=r[6];
-        double bz=r[5];
+        // TODO Check This
+        // Now r is a 11D vector
+        double bx=r[6];
+        double by=r[7];
+        double bz=r[8];
 
         vtk_superquadric->SetScale(bx,by,bz);
-        vtk_superquadric->SetPhiRoundness(r[7]); // roundness along model z axis (vtk y axis)
-        vtk_superquadric->SetThetaRoundness(r[8]); // common roundness along model x and y axes (vtk x and z axes)
+        vtk_superquadric->SetPhiRoundness(r[9]); // roundness along model z axis (vtk y axis)
+        vtk_superquadric->SetThetaRoundness(r[10]); // common roundness along model x and y axes (vtk x and z axes)
 
         vtk_sample->SetModelBounds(-bx,bx,-by,by,-bz,bz);
 
+        Vector axisangle = dcm2axis(euler2dcm(r.subVector(3,5)));
+
         vtk_transform->Identity();
         vtk_transform->Translate(r.subVector(0,2).data());
-        vtk_transform->RotateZ(r[3]); // rotate around vertical
+        // TODO Check This
+        // Now r is a 11D vector and have generic orientation
+        vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
         vtk_transform->RotateX(-90.0); // rotate to invert y and z
     }
 };
 
 
 /****************************************************************/
-class Localizer : public RFModule
+class Localizer : public RFModule, Localizer_IDL
 {
     Bottle outliersRemovalOptions;
     unsigned int uniform_sample;
@@ -281,27 +293,14 @@ class Localizer : public RFModule
 
     // New
     string object_name;
-    Vector object_shape;
-    Vector object_dim;
+    Vector object_prop;
 
-    class PointsProcessor : public PortReader {
-        Localizer *localizer;
-        // TODO Thrift service
-        bool read(ConnectionReader &connection) override {
-            PointCloud<DataXYZRGBA> points;
-            if (!points.read(connection))
-                return false;
-            Bottle reply;
-            localizer->process(points,reply);
-            if (ConnectionWriter *writer=connection.getWriter())
-                reply.write(*writer);
-            return true;
-        }
-    public:
-        PointsProcessor(Localizer *localizer_) : localizer(localizer_) { }
-    } pointsProcessor;
+    // The rpc port now is thrifted and used also for
+    // localizing the superquadric
+    RpcServer rpcService;
 
-    RpcServer rpcPoints,rpcService;
+    // This rpc to communicate with OPC
+    RpcClient rpcOPC;
 
     vector<Vector> all_points,in_points,out_points,dwn_points;
     vector<vector<unsigned char>> all_colors;
@@ -317,6 +316,12 @@ class Localizer : public RFModule
     vtkSmartPointer<vtkCamera> vtk_camera;
     vtkSmartPointer<vtkInteractorStyleSwitch> vtk_style;
     vtkSmartPointer<UpdateCommand> vtk_updateCallback;
+
+    /************************************************************************/
+    bool attach(RpcServer &source)
+    {
+      return this->yarp().attachAsServer(source);
+    }
 
     /****************************************************************/
     void removeOutliers()
@@ -394,11 +399,8 @@ class Localizer : public RFModule
     }
 
     /****************************************************************/
-    Vector localizeSuperquadric() const  // Pass here dimensions and shape
+    Vector localizeSuperquadric() const
     {
-        // TODO Pass dimensions and shape of the superquadric to the solver
-        // It is required to the optimization problem to localize the SQ
-        // The parameters should be asked before to OPC
         Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
         app->Options()->SetNumericValue("tol",1e-6);
         app->Options()->SetNumericValue("constr_viol_tol",1e-3);
@@ -411,13 +413,14 @@ class Localizer : public RFModule
         app->Initialize();
 
         double t0=Time::now();
-        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points,inside_penalty);  // TODO Pass here 5 parameters
+        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points,inside_penalty, object_prop);
         Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
         double t1=Time::now();
 
+        // TODO Check the result is passed properly
         Vector r=nlp->get_result();
         yInfo()<<"center   = ("<<r.subVector(0,2).toString(3,3)<<")";
-        yInfo()<<"angle    ="<<r[3]<<"[deg]";
+        yInfo()<<"orientation    ="<<r.subVector(3,5).toString(3,3)<<"[deg]";
         yInfo()<<"found in ="<<t1-t0<<"[s]";
 
         return r;
@@ -428,10 +431,26 @@ class Localizer : public RFModule
     {
         Rand::init();
 
+        object_prop.resize(5);
+
         from_file=rf.check("file");
         if (from_file)
         {
             string file=rf.find("file").asString();
+            Bottle *list=rf.find("object_prop").asList();
+            if(list)
+            {
+                if(list->size() == 5)
+                {
+                    for(int i = 0; i < 5; i++) object_prop[i] = list->get(i).asDouble();
+                }
+                else
+                {
+                    yError() <<  "Invalid object shape and dim dimension in config. Should be 5.";
+                    return false;
+                }
+            }
+
             ifstream fin(file.c_str());
             if (!fin.is_open())
             {
@@ -461,11 +480,10 @@ class Localizer : public RFModule
         }
         else
         {
-            rpcPoints.open("/find-superquadric/points:rpc");
-            rpcPoints.setReader(pointsProcessor);
-
-            rpcService.open("/find-superquadric/service:rpc");
+            rpcService.open("/localize-superquadric/service:rpc");
             attach(rpcService);
+
+            rpcOPC.open("/localize-superquadric/opc:rpc");
         }
 
         if (rf.check("remove-outliers"))
@@ -583,9 +601,8 @@ class Localizer : public RFModule
     }
 
     /****************************************************************/
-    void process(const PointCloud<DataXYZRGBA> &points, Bottle &reply) // Process should receive also object model
+    Vector localize_superq(const string &object_name, const vector<DataXYZRGBA> &points)
     {
-        reply.clear();
         if (points.size()>0)
         {
             LockGuard lg(mutex);
@@ -600,24 +617,118 @@ class Localizer : public RFModule
             vector<unsigned char> c(3);
             for (int i=0; i<points.size(); i++)
             {
-                p[0]=points(i).x;
-                p[1]=points(i).y;
-                p[2]=points(i).z;
-                c[0]=points(i).r;
-                c[1]=points(i).g;
-                c[2]=points(i).b;
+                p[0]=points[i].x;
+                p[1]=points[i].y;
+                p[2]=points[i].z;
+                // c[0]=points[i].r;
+                // c[1]=points[i].g;
+                // c[2]=points[i].b;
                 all_points.push_back(p);
-                all_colors.push_back(c);
+                // all_colors.push_back(c);
             }
 
-            // TODO
-            // Ask object dimensions and shape
+            // Ask object dimensions and shape to OPC
+            // TODO to be tested
+            Bottle cmd,reply;
+            cmd.addVocab(Vocab::encode("ask"));
+            Bottle &content=cmd.addList();
+            Bottle &cond_1=content.addList();
+            cond_1.addString("entity");
+            cond_1.addString("==");
+            cond_1.addString("object");
+            content.addString("&&");
+            Bottle &cond_2=content.addList();
+            cond_2.addString("name");
+            cond_2.addString("==");
+            cond_2.addString(object_name);
+
+            rpcOPC.write(cmd, reply);
+            if(reply.size()>1)
+            {
+                if(reply.get(0).asVocab()==Vocab::encode("ack"))
+                {
+                    if (Bottle *b=reply.get(1).asList())
+                    {
+                        if (Bottle *b1=b->get(1).asList())
+                        {
+                            cmd.clear();
+                            int id=b1->get(0).asInt();
+                            cmd.addVocab(Vocab::encode("get"));
+                            Bottle &info=cmd.addList();
+                            Bottle &info2=info.addList();
+                            info2.addString("id");
+                            info2.addInt(id);
+                            Bottle &info3=info.addList();
+                            info3.addString("propSet");
+                            Bottle &info4=info3.addList();
+                            info4.addString("object_dim_and_shape");
+                        }
+                        else
+                        {
+                            yError("no object id provided by OPC!");
+                        }
+                    }
+                    else
+                    {
+                        yError("uncorrect reply from OPC!");
+                    }
+
+                    Bottle reply;
+                    if (rpcOPC.write(cmd,reply))
+                    {
+                        if (reply.size()>1)
+                        {
+                            if (reply.get(0).asVocab()==Vocab::encode("ack"))
+                            {
+                                if (Bottle *b=reply.get(1).asList())
+                                {
+                                    if (Bottle *b1=b->find("object_dim_and_shape").asList())
+                                    {
+                                        object_prop[0]=b1->get(0).asDouble();
+                                        object_prop[1]=b1->get(1).asDouble();
+                                        object_prop[2]=b1->get(2).asDouble();
+                                        object_prop[3]=b1->get(3).asDouble();
+                                        object_prop[4]=b1->get(3).asDouble();
+
+                                        yInfo() << "Received object dimension and shape " << object_prop.toString();
+                                    }
+                                    else
+                                    {
+                                        yError("object_dim_and_shape field not found in the OPC reply!");
+                                    }
+                                }
+                                else
+                                {
+                                    yError("uncorrect reply structure received!");
+                                }
+                            }
+                            else
+                            {
+                                yError("Failure in reply for object_dim_and_shape!");
+                            }
+                        }
+                        else
+                        {
+                            yError("reply size for object_dim_and_shape less than 1!");
+                        }
+                    }
+                    else
+                        yError("no reply from second OPC query!");
+                }
+                else
+                {
+                    yError("Failure in reply for object id!");
+                }
+            }
+            else
+            {
+                yError("reply size for object id less than 1!");
+            }
 
             removeOutliers();
             sampleInliers();
-            Vector r=localizeSuperquadric();  // Pass superquadric parameters
-            // TODO The parameters then need to included all in the vector r
-            // for visualization
+
+            Vector r=localizeSuperquadric();
 
             vtk_all_points->set_points(all_points);
             vtk_all_points->set_colors(all_colors);
@@ -630,37 +741,52 @@ class Localizer : public RFModule
     }
 
     /****************************************************************/
-    bool respond(const Bottle &command, Bottle &reply) override
+    bool set_remove_outliers(const Bottle &params)
     {
-        LockGuard lg(mutex);
-
-        bool ok=false;
-        if (command.check("remove-outliers"))
+        if (params.size()==2)
         {
-            if (const Bottle *ptr=command.find("remove-outliers").asList())
-                outliersRemovalOptions=*ptr;
-            ok=true;
-        }
+            outliersRemovalOptions.clear();
+            double radius=params.get(0).asDouble();
+            int minpts=params.get(1).asInt();
+            outliersRemovalOptions.addDouble(radius);
+            outliersRemovalOptions.addInt(minpts);
 
-        if (command.check("uniform-sample"))
-        {
-            uniform_sample=(unsigned int)command.find("uniform-sample").asInt();
-            ok=true;
-        }
+            yInfo() << "Set outlier removal options: radius" << outliersRemovalOptions.get(0).asDouble()
+                     << "and minpts" <<  outliersRemovalOptions.get(1).asInt();
 
-        if (command.check("random-sample"))
-        {
-            random_sample=command.find("random-sample").asDouble();
-            ok=true;
+            return true;
         }
+        else
+            return false;
+    }
 
-        if (command.check("inside-penalty"))
-        {
-            inside_penalty=command.find("inside-penalty").asDouble();
-            ok=true;
-        }
+    /****************************************************************/
+    bool set_uniform_sample(const string &input)
+    {
+        uniform_sample=(input=="on");
 
-        reply.addVocab(Vocab::encode(ok?"ack":"nack"));
+        yInfo() << " New value for uniform_sample " << uniform_sample;
+
+        return true;
+    }
+
+    /****************************************************************/
+    bool set_random_sample(const string &input)
+    {
+        random_sample=(input=="on");
+
+        yInfo() << " New value for random_sample " << random_sample;
+
+        return true;
+    }
+
+    /****************************************************************/
+    bool set_inside_penalty(const string &input)
+    {
+        inside_penalty=(input=="on");
+
+        yInfo() << " New value for inside_penalty " << inside_penalty;
+
         return true;
     }
 
@@ -674,8 +800,8 @@ class Localizer : public RFModule
     /****************************************************************/
     bool close() override
     {
-        if (rpcPoints.asPort().isOpen())
-            rpcPoints.close();
+        if (rpcOPC.asPort().isOpen())
+            rpcOPC.close();
         if (rpcService.asPort().isOpen())
             rpcService.close();
         return true;
@@ -683,7 +809,7 @@ class Localizer : public RFModule
 
 public:
     /****************************************************************/
-    Localizer() : closing(false), pointsProcessor(this) { }
+    Localizer() : closing(false) { }
 };
 
 

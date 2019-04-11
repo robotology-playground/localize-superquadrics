@@ -31,7 +31,10 @@ include(${VTK_USE_FILE})
 add_definitions(${IPOPT_DEFINITIONS} -D_USE_MATH_DEFINES)
 include_directories(${PROJECT_SOURCE_DIR}/src ${IPOPT_INCLUDE_DIRS})
 
-add_executable(${PROJECT_NAME} src/nlp.h src/nlp.cpp src/main.cpp)
+yarp_add_idl(IDL_GEN_FILES src/idl.thrift)
+source_group("IDL Files" FILES src/idl.thrift)
+
+add_executable(${PROJECT_NAME} src/nlp.h src/nlp.cpp src/main.cpp src/idl.thrift ${IDL_GEN_FILES})
 set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS " ${IPOPT_LINK_FLAGS}")
 
 target_link_libraries(${PROJECT_NAME} ${YARP_LIBRARIES} ${IPOPT_LIBRARIES} ${VTK_LIBRARIES} ctrlLib)

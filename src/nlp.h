@@ -31,6 +31,7 @@ protected:
     yarp::sig::Vector centroid;
     yarp::sig::Matrix bounds;
     yarp::sig::Vector result;
+    yarp::sig::Vector object_prop;
 
     /****************************************************************/
     bool get_nlp_info(Ipopt::Index &n, Ipopt::Index &m, Ipopt::Index &nnz_jac_g,
@@ -79,11 +80,10 @@ protected:
 public:
     /****************************************************************/
     SuperQuadricNLP(const std::vector<yarp::sig::Vector> &points_,
-                    const double inside_penalty_);
+                    const double inside_penalty_, const yarp::sig::Vector &object_prop);
 
     /****************************************************************/
     yarp::sig::Vector get_result() const;
 };
 
 #endif
-
