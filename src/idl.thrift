@@ -35,16 +35,17 @@
  )
 
  /**
- * PointCloud
+ * PointCloudXYZRGBA
  *
  * IDL structure to set/show advanced parameters.
  */
- struct DataXYZ
+ struct PointCloudXYZRGBA
  {
-   1: double x;
-   2: double y;
-   3: double z;
  } 
+	(
+    yarp.name = "PointCloudXYZRGBA"
+    yarp.includefile="test.h"
+ )
 
  service Localizer_IDL
  {
@@ -54,7 +55,7 @@
      * @param object_name is the object name
      * @return a 5D Vector containing the dimensions and shape
      */
-	 Vector localize_superq(1: string &object_names, 2: list<DataXYZ> &points);
+	 Vector localize_superq(1: string &object_names, 2: PointCloudXYZRGBA &points);
 
      /**
      * Set the options to remove outliers from point cloud 

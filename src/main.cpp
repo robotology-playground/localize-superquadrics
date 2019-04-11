@@ -49,7 +49,8 @@
 #include <vtkInteractorStyleSwitch.h>
 
 #include "nlp.h"
- #include "src/Localizer_IDL.h"
+#include "test.h"
+#include "src/Localizer_IDL.h"
 
 using namespace std;
 using namespace yarp::os;
@@ -620,11 +621,11 @@ class Localizer : public RFModule, Localizer_IDL
                 p[0]=points[i].x;
                 p[1]=points[i].y;
                 p[2]=points[i].z;
-                // c[0]=points[i].r;
-                // c[1]=points[i].g;
-                // c[2]=points[i].b;
+                c[0]=points[i].r;
+                c[1]=points[i].g;
+                c[2]=points[i].b;
                 all_points.push_back(p);
-                // all_colors.push_back(c);
+                all_colors.push_back(c);
             }
 
             // Ask object dimensions and shape to OPC
