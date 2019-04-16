@@ -43,8 +43,8 @@
  {
  } 
 	(
-    yarp.name = "PointCloudXYZRGBA"
-    yarp.includefile="test.h"
+    yarp.name = "yarp::sig::PointCloudXYZRGBA"
+    yarp.includefile="yarp/sig/PointCloud.h"
  )
 
  service Localizer_IDL
