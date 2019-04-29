@@ -263,8 +263,8 @@ public:
         // TODO Check This
         // Now r is a 11D vector
         double bx=r[6];
-        double by=r[7];
-        double bz=r[8];
+        double by=r[8];
+        double bz=r[7];
 
         vtk_superquadric->SetScale(bx,by,bz);
         vtk_superquadric->SetPhiRoundness(r[9]); // roundness along model z axis (vtk y axis)
@@ -280,6 +280,7 @@ public:
         // Now r is a 11D vector and have generic orientation
         vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
         vtk_transform->RotateX(-90.0); // rotate to invert y and z
+        vtk_actor->SetUserTransform(vtk_transform);
     }
 };
 
@@ -299,6 +300,7 @@ class Localizer : public RFModule, Localizer_IDL
     // New
     string object_name;
     Vector object_prop;
+    PointCloudXYZRGBA point_cloud;
 
     // The rpc port now is thrifted and used also for
     // localizing the superquadric
@@ -536,7 +538,7 @@ class Localizer : public RFModule, Localizer_IDL
         vtk_out_points->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
         vtk_dwn_points->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
 
-        Vector r(9,0.0);
+        Vector r(11,0.0);
         if (dwn_points.size()>0)
             r=localizeSuperquadric();
         vtk_superquadric=unique_ptr<Superquadric>(new Superquadric(r,color,opacity));
@@ -606,142 +608,165 @@ class Localizer : public RFModule, Localizer_IDL
     }
 
     /****************************************************************/
-    Vector localize_superq(const string &object_name, const vector<DataXYZRGBA> &points)
+    Vector localize_superq(const string &object_name, const Bottle &points_bottle)
     {
-        if (points.size()>0)
+        bool success = point_cloud.fromBottle(points_bottle);
+        if (success)
         {
-            LockGuard lg(mutex);
-
-            all_points.clear();
-            all_colors.clear();
-            in_points.clear();
-            out_points.clear();
-            dwn_points.clear();
-
-            Vector p(3);
-            vector<unsigned char> c(3);
-            for (int i=0; i<points.size(); i++)
+            yDebug() << "points no. "<< point_cloud.size();
+            if (point_cloud.size()>0)
             {
-                p[0]=points[i].x;
-                p[1]=points[i].y;
-                p[2]=points[i].z;
-                c[0]=points[i].r;
-                c[1]=points[i].g;
-                c[2]=points[i].b;
-                all_points.push_back(p);
-                // all_colors.push_back(c);
-            }
+                LockGuard lg(mutex);
 
-            // Ask object dimensions and shape to OPC
-            // TODO to be tested
-            Bottle cmd,reply;
-            cmd.addVocab(Vocab::encode("ask"));
-            Bottle &content=cmd.addList();
-            Bottle &cond_1=content.addList();
-            cond_1.addString("entity");
-            cond_1.addString("==");
-            cond_1.addString("object");
-            content.addString("&&");
-            Bottle &cond_2=content.addList();
-            cond_2.addString("name");
-            cond_2.addString("==");
-            cond_2.addString(object_name);
+                all_points.clear();
+                all_colors.clear();
+                in_points.clear();
+                out_points.clear();
+                dwn_points.clear();
 
-            rpcOPC.write(cmd, reply);
-            if(reply.size()>1)
-            {
-                if(reply.get(0).asVocab()==Vocab::encode("ack"))
+                Vector p(3);
+                vector<unsigned char> c(3);
+                for (int i=0; i<point_cloud.size(); i++)
                 {
-                    if (Bottle *b=reply.get(1).asList())
+                    p[0]=point_cloud(i).x;
+                    p[1]=point_cloud(i).y;
+                    p[2]=point_cloud(i).z;
+                    c[0]=point_cloud(i).r;
+                    c[1]=point_cloud(i).g;
+                    c[2]=point_cloud(i).b;
+                    all_points.push_back(p);
+                    // all_colors.push_back(c);
+                }
+
+                // Ask object dimensions and shape to OPC
+                // TODO to be tested
+                Bottle cmd,reply;
+                cmd.addVocab(Vocab::encode("ask"));
+                Bottle &content=cmd.addList();
+                Bottle &cond_1=content.addList();
+                cond_1.addString("entity");
+                cond_1.addString("==");
+                cond_1.addString("object");
+                content.addString("&&");
+                Bottle &cond_2=content.addList();
+                cond_2.addString("name");
+                cond_2.addString("==");
+                cond_2.addString(object_name);
+
+                rpcOPC.write(cmd, reply);
+
+                if(reply.size()>1)
+                {
+                    if(reply.get(0).asVocab()==Vocab::encode("ack"))
                     {
-                        if (Bottle *b1=b->get(1).asList())
+                        if (Bottle *b=reply.get(1).asList())
                         {
-                            cmd.clear();
-                            int id=b1->get(0).asInt();
-                            cmd.addVocab(Vocab::encode("get"));
-                            Bottle &info=cmd.addList();
-                            Bottle &info2=info.addList();
-                            info2.addString("id");
-                            info2.addInt(id);
-                            Bottle &info3=info.addList();
-                            info3.addString("propSet");
-                            Bottle &info4=info3.addList();
-                            info4.addString("object_dim_and_shape");
+                            if (Bottle *b1=b->get(1).asList())
+                            {
+                                cmd.clear();
+                                int id=b1->get(0).asInt();
+                                cmd.addVocab(Vocab::encode("get"));
+                                Bottle &info=cmd.addList();
+                                Bottle &info2=info.addList();
+                                info2.addString("id");
+                                info2.addInt(id);
+                                Bottle &info3=info.addList();
+                                info3.addString("propSet");
+                                Bottle &info4=info3.addList();
+                                info4.addString("object_dim_and_shape");
+                            }
+                            else
+                            {
+                                yError("no object id provided by OPC!");
+                            }
                         }
                         else
                         {
-                            yError("no object id provided by OPC!");
+                            yError("uncorrect reply from OPC!");
                         }
-                    }
-                    else
-                    {
-                        yError("uncorrect reply from OPC!");
-                    }
 
-                    Bottle reply;
-                    if (rpcOPC.write(cmd,reply))
-                    {
-                        if (reply.size()>1)
+                        Bottle reply;
+                        if (rpcOPC.write(cmd,reply))
                         {
-                            if (reply.get(0).asVocab()==Vocab::encode("ack"))
+                            if (reply.size()>1)
                             {
-                                if (Bottle *b=reply.get(1).asList())
+                                if (reply.get(0).asVocab()==Vocab::encode("ack"))
                                 {
-                                    if (Bottle *b1=b->find("object_dim_and_shape").asList())
+                                    if (Bottle *b=reply.get(1).asList())
                                     {
-                                        object_prop[0]=b1->get(0).asDouble();
-                                        object_prop[1]=b1->get(1).asDouble();
-                                        object_prop[2]=b1->get(2).asDouble();
-                                        object_prop[3]=b1->get(3).asDouble();
-                                        object_prop[4]=b1->get(3).asDouble();
+                                        if (Bottle *b1=b->find("object_dim_and_shape").asList())
+                                        {
+                                            object_prop[0]=b1->get(0).asDouble();
+                                            object_prop[1]=b1->get(1).asDouble();
+                                            object_prop[2]=b1->get(2).asDouble();
+                                            object_prop[3]=b1->get(3).asDouble();
+                                            object_prop[4]=b1->get(3).asDouble();
 
-                                        yInfo() << "Received object dimension and shape " << object_prop.toString();
+                                            yInfo() << "Received object dimension and shape " << object_prop.toString();
+                                        }
+                                        else
+                                        {
+                                            yError("object_dim_and_shape field not found in the OPC reply!");
+                                        }
                                     }
                                     else
                                     {
-                                        yError("object_dim_and_shape field not found in the OPC reply!");
+                                        yError("uncorrect reply structure received!");
                                     }
                                 }
                                 else
                                 {
-                                    yError("uncorrect reply structure received!");
+                                    yError("Failure in reply for object_dim_and_shape!");
                                 }
                             }
                             else
                             {
-                                yError("Failure in reply for object_dim_and_shape!");
+                                yError("reply size for object_dim_and_shape less than 1!");
                             }
                         }
                         else
-                        {
-                            yError("reply size for object_dim_and_shape less than 1!");
-                        }
+                            yError("no reply from second OPC query!");
                     }
                     else
-                        yError("no reply from second OPC query!");
+                    {
+                        yError("Failure in reply for object id!");
+                    }
                 }
                 else
                 {
-                    yError("Failure in reply for object id!");
+                    yError("reply size for object id less than 1!");
                 }
+
+                removeOutliers();
+                sampleInliers();
+
+                Vector r=localizeSuperquadric();
+
+                yDebug()<<"estimated r "<<r.toString();
+
+                vtk_all_points->set_points(all_points);
+                vtk_all_points->set_colors(all_colors);
+                vtk_out_points->set_points(out_points);
+                vtk_dwn_points->set_points(dwn_points);
+                vtk_superquadric->set_parameters(r);
+
+                return r;
             }
             else
             {
-                yError("reply size for object id less than 1!");
+                yError() << "Point cloud size 0!";
+
+                Vector r(11,0.0);
+                return r;
             }
+            
+        }
+        else
+        {
+            yError() << "No point cloud bottle received!";
 
-            removeOutliers();
-            sampleInliers();
-
-            Vector r=localizeSuperquadric();
-
-            vtk_all_points->set_points(all_points);
-            vtk_all_points->set_colors(all_colors);
-            vtk_out_points->set_points(out_points);
-            vtk_dwn_points->set_points(dwn_points);
-            vtk_superquadric->set_parameters(r);
-
-            reply.read(r);
+            Vector r(11,0.0);
+            return r;
         }
     }
 
