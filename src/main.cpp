@@ -205,9 +205,10 @@ public:
     {
         // TODO Check This
         // Now r is a 11D vector
+        yDebug()<<"r "<< r.toString();
         double bx=r[6];
-        double by=r[7];
-        double bz=r[8];
+        double by=r[8];
+        double bz=r[7];
 
         vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
         vtk_superquadric->ToroidalOff();
@@ -242,7 +243,10 @@ public:
         vtk_transform->Translate(r.subVector(0,2).data());
         // TODO Check This
         // Now r is a 11D vector and orientation is general
-        Vector axisangle = dcm2axis(euler2dcm(r.subVector(3,5)));
+        Vector axisangle = dcm2axis(rpy2dcm(r.subVector(3,5)* M_PI/180.0));
+        yDebug()<< "r.subVector(3,5) "<< (r.subVector(3,5)/180.0/M_PI).toString();
+        yDebug()<<"aa "<< axisangle.toString();
+        yDebug()<<"norm "<< norm(axisangle.subVector(0,2));
         vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
         vtk_transform->RotateX(-90.0); // rotate to invert y and z
         vtk_actor->SetUserTransform(vtk_transform);
@@ -268,7 +272,7 @@ public:
 
         vtk_sample->SetModelBounds(-bx,bx,-by,by,-bz,bz);
 
-        Vector axisangle = dcm2axis(euler2dcm(r.subVector(3,5)));
+        Vector axisangle = dcm2axis(rpy2dcm(r.subVector(3,5)));
 
         vtk_transform->Identity();
         vtk_transform->Translate(r.subVector(0,2).data());
@@ -625,7 +629,7 @@ class Localizer : public RFModule, Localizer_IDL
                 c[1]=points[i].g;
                 c[2]=points[i].b;
                 all_points.push_back(p);
-                all_colors.push_back(c);
+                // all_colors.push_back(c);
             }
 
             // Ask object dimensions and shape to OPC

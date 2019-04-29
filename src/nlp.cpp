@@ -39,6 +39,8 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
                                       Ipopt::Number *x_u, Ipopt::Index m,
                                       Ipopt::Number *g_l, Ipopt::Number *g_u)
 {
+
+    // TODO Check if using information on dimensions could be useful here
     Vector margin(3);
     margin[0]=0.25*(bounds(0,1)-bounds(0,0));
     margin[1]=0.25*(bounds(1,1)-bounds(1,0));
@@ -94,7 +96,7 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
     angles[0] = r;
     angles[1] = p;
     angles[2] = y;
-    Matrix T=euler2dcm(angles);
+    Matrix T=rpy2dcm(angles);
     T.setSubcol(c,0,3);
     T=SE3inv(T);
 
@@ -108,8 +110,8 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
         double ty=pow(abs(p1[1]/s[1]),2.0/e2);
         double tz=pow(abs(p1[2]/s[2]),2.0/e1);
         double F1=pow(pow(tx+ty,e2/e1)+tz,e1)-1.0;
-        double penalty=(F1<0.0?inside_penalty:1.0);
-        obj_value+=F1*F1*penalty;
+        //double penalty=(F1<0.0?inside_penalty:1.0);   // No penalty in this case
+        obj_value+=pow( F1, 2.0*e1); //*penalty;
     }
 
     obj_value*=(s[0]*s[1]*s[2])/points.size();
@@ -138,13 +140,14 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
     angles[0] = r;
     angles[1] = p;
     angles[2] = y;
-    Matrix T=euler2dcm(angles);
+    Matrix T=rpy2dcm(angles);
     T.setSubcol(c,0,3);
     T=SE3inv(T);
 
     for (Ipopt::Index i=0; i<n; i++)
         grad_f[i]=0.0;
 
+    double coeff=s[0]*s[1]*s[2];
     Vector p1(4,1.0);
 
     for (auto &point:points)
@@ -152,10 +155,10 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
         p1.setSubvector(0,point);
         p1=T*p1;
 
-        double t17= cos(r) * sin(y);
-        double t16= p1[0] * cos(p) * cos(y);
-        double t15= cos(y) * sin(p) * sin(r);
-        double t14= sin(r) * sin(y) + cos(r) * cos(y) * sin(p);
+        double t17 = cos(r) * sin(y);
+        double t16 = p1[0] * cos(p) * cos(y);
+        double t15 = cos(y) * sin(p) * sin(r);
+        double t14 = sin(r) * sin(y) + cos(r) * cos(y) * sin(p);
         double t13 = cos(r) * cos(y);
         double t12 = p1[0] * cos(p) * sin(y);
         double t11 = sin(p) * sin(r) * sin(y);
@@ -164,38 +167,41 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
         double t8 = c[1] + p1[1] * (t13 + t11) - p1[2] * t10 + t12;
         double t7 = c[2] - p1[0] * sin(p) + p1[2] * cos(p) * cos(r) + p1[1] * cos(p) * sin(r);
 
-        double t6 = pow( (t9/s[0]), 2.0/e2) + pow( (t8, s[1]), 2.0/e2);
-        double t5 = pow( (t7/s[2]), (2.0/e1 - 1) );
-        double t4 = pow( (t9/s[0]), (2.0/e1 - 1) );
-        double t3 = pow( (t8/s[1]), (2.0/e2 - 1) );
-        double t2 = pow( (t7/s[2]), 2.0/e1) + pow( t6, e2/e1);
-        double t1 = pow(t6, (e2/e1 - 1) );
+        double t6 = pow( abs(t9)/s[0], 2.0/e2 ) + pow( abs(t8)/s[1], 2.0/e2);
+        double t5 = pow( abs(t7)/s[2], (2.0/e1 - 1) );
+        double t4 = pow( abs(t9)/s[0], (2.0/e2 - 1) );
+        double t3 = pow( abs(t8)/s[1], (2.0/e2 - 1) );
+        double t2 = pow( abs(t7)/s[2], 2.0/e1 ) + pow( abs(t6), e2/e1);
+        double t1 = pow( abs(t6), (e2/e1 - 1) );
 
-        grad_f[0] += (sign(t9) * t1 * pow(t2, e1-1) * (pow(t2, e1) - 1) * t4 * 4) / (abs(s[0]));
-        grad_f[1] += (sign(t8) * t3 * t1 * pow(t2, e1-1) * (pow(t2, e1) - 1) * 4) / ( abs(s[1]));
-        grad_f[2] +=  (sign(t7) * t5 * pow(t2, e1-1) * (pow(t2,e1)-1) * 4) / (abs(s[2]));
+        grad_f[0] += coeff * (sign(t9) * t1 * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) * t4 * 4) / (s[0]);
+        grad_f[1] += coeff * (sign(t8) * t3 * t1 * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) * 4) / (s[1]);
+        grad_f[2] += coeff * (sign(t7) * t5 * pow(abs(t2), e1-1) * (pow(abs(t2),e1)-1) * 4) / (s[2]);
 
-        double grad3_1 = e1 * pow(t2, e1-1) * (pow(t2,e1) - 1);
-        double grad3_2 = (sign(t9) * (p1[1] * t14 + p1[2] * (t17 - t15)) * t4 * 2) / (e2 * abs(s[0]));
-        double grad3_3 = (sign(t8) * t3 * (p1[1] * t10 + p1[2] * (t13 + t11)) * 2) / (e2 * abs(s[2]));
-        double grad3_4 = (sign(t7) * (p1[1] * cos(p) * cos(r) - p1[2] * cos(p) * sin(r)) * t5 * 2) / (e1 * abs(s[2]));
+        double grad3_1 = e1 * pow(abs(t2), e1-1) * (pow(abs(t2),e1) - 1);
+        double grad3_2 = (sign(t9) * (p1[1] * t14 + p1[2] * (t17 - t15)) * t4 * 2) / (e2 * s[0]);
+        double grad3_3 = (sign(t8) * t3 * (p1[1] * t10 + p1[2] * (t13 + t11)) * 2) / (e2 * s[1]);
+        double grad3_4 = (sign(t7) * (p1[1] * cos(p) * cos(r) - p1[2] * cos(p) * sin(r)) * t5 * 2) / (e1 * s[2]);
 
-        grad_f[3] += grad3_1 * (((e2 * (grad3_2 - grad3_3) * t1)/ e1) + grad3_4) * 2;
+        grad_f[3] += coeff * grad3_1 * (((e2 * (grad3_2 - grad3_3) * t1)/ e1) + grad3_4) * 2;
 
         double grad4_1 = (sign(t9) * t4 * (p1[2] * cos(p) * cos(r) * cos(y) - p1[0] * cos(y) * sin(p) +
-                                  p1[1] * cos(p) * cos(y) * sin(r)) * 2) / (e2 * abs(s[0]));
+                                  p1[1] * cos(p) * cos(y) * sin(r)) * 2) / (e2 * s[0]);
         double grad4_2 = (sign(t8) * t3 * ( p1[2] * cos(p) * cos(r) * sin(y) - p1[0] * sin(p) * sin(y) +
-                                  p1[1] * cos(p) * sin(r) * sin(y)) * 2) / (e2 * abs(s[2]));
-        double grad4_3 = (sign(t7) * t5 * (p1[0] * cos(p) + p1[2] * cos(r) * sin(p) + y * sin(p) * sin(r)) *2 ) / (e1 * abs(s[2]));
+                                  p1[1] * cos(p) * sin(r) * sin(y)) * 2) / (e2 * s[1]);
+        double grad4_3 = (sign(t7) * t5 * (p1[0] * cos(p) + p1[2] * cos(r) * sin(p) + y * sin(p) * sin(r)) *2 ) / (e1 * s[2]);
 
-        grad_f[4] += e1 * ((e2 * t1 * (grad4_1 + grad4_2))/e1 - grad4_3) * pow(t2, e1-1) * (pow(t2, e1) - 1) * 2;
+        grad_f[4] += coeff * e1 * ((e2 * t1 * (grad4_1 + grad4_2))/e1 - grad4_3) * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) * 2;
 
-        double grad5_1 = (sign(t9) * t4 * (t17 + p1[1] * (t13 + t11) - p1[2] * t10 - t15 + t12) * 2) / (e2 / abs(s[0]));
-        double grad5_2 = (sign(t8) *t3 * (t13 - p1[1] * (t17 - t15) + p1[2] * t14 + t11 + t16) * 2) / (e2 / abs(s[1]));
-        double grad5_3 = (sign(t7) * cos(p) * sin(r) * t5 *2) / (e1/abs(s[2]));
+        double grad5_1 = (sign(t9) * t4 * (t17 + p1[1] * (t13 + t11) - p1[2] * t10 - t15 + t12) * 2) / (e2 * s[0]);
+        double grad5_2 = (sign(t8) *t3 * (t13 - p1[1] * (t17 - t15) + p1[2] * t14 + t11 + t16) * 2) / (e2 * s[1]);
+        double grad5_3 = (sign(t7) * cos(p) * sin(r) * t5 *2) / (e1 * s[2]);
 
-        grad_f[5] += -e1 * ( (e2 * t1 * (grad5_1 - grad5_2))/(e2 * abs(s[0])) - grad5_3) * pow(t2, e1-1) * (pow(t2, e1) - 1) *2;
+        grad_f[5] += -coeff * e1 * ( (e2 * t1 * (grad5_1 - grad5_2))/(e1) - grad5_3) * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) *2;
     }
+
+    for (Ipopt::Index i=0; i<n; i++)
+        grad_f[i]/=points.size();
 
     return true;
 }
