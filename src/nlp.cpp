@@ -27,9 +27,12 @@ bool SuperQuadricNLP::get_nlp_info(Ipopt::Index &n, Ipopt::Index &m,
                                    Ipopt::Index &nnz_h_lag,
                                    IndexStyleEnum &index_style)
 {
-    n=6; m=1;
-    nnz_jac_g=2;
-    nnz_h_lag=0;
+    n=6;
+    // TEST
+    //m=1;
+    //nnz_jac_g=2;
+    //nnz_h_lag=0;
+    m = nnz_jac_g = nnz_h_lag = 0;
     index_style=TNLP::C_STYLE;
     return true;
 }
@@ -55,7 +58,8 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
     x_l[4]=0.0; x_u[4]=M_PI;
     x_l[5]=0.0; x_u[5]=2.0*M_PI;
     // limit on z-min
-    g_l[0]=bounds(2,0); g_u[0]=numeric_limits<double>::infinity();
+    // TEST
+    //g_l[0]=bounds(2,0); g_u[0]=numeric_limits<double>::infinity();
     return true;
 }
 
@@ -106,12 +110,12 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
     {
         p1.setSubvector(0,p);
         p1=T*p1;
-        double tx=pow(abs(p1[0]/s[0]),2.0/e2);
-        double ty=pow(abs(p1[1]/s[1]),2.0/e2);
-        double tz=pow(abs(p1[2]/s[2]),2.0/e1);
-        double F1=pow(pow(tx+ty,e2/e1)+tz,e1)-1.0;
+        double tx=pow(abs( p1[0]/s[0]), 2.0/e2);
+        double ty=pow(abs( p1[1]/s[1]), 2.0/e2);
+        double tz=pow(abs( p1[2]/s[2]), 2.0/e1);
+        double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
         //double penalty=(F1<0.0?inside_penalty:1.0);   // No penalty in this case
-        obj_value+=pow( F1, 2.0*e1); //*penalty;
+        obj_value += F1 * F1; //*penalty;
     }
 
     obj_value*=(s[0]*s[1]*s[2])/points.size();
@@ -147,57 +151,80 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
     for (Ipopt::Index i=0; i<n; i++)
         grad_f[i]=0.0;
 
-    double coeff=s[0]*s[1]*s[2];
+    double coeff = s[0] * s[1] * s[2];
     Vector p1(4,1.0);
 
     for (auto &point:points)
     {
         p1.setSubvector(0,point);
-        p1=T*p1;
+        p1 = T * p1;
 
-        double t17 = cos(r) * sin(y);
-        double t16 = p1[0] * cos(p) * cos(y);
-        double t15 = cos(y) * sin(p) * sin(r);
-        double t14 = sin(r) * sin(y) + cos(r) * cos(y) * sin(p);
-        double t13 = cos(r) * cos(y);
-        double t12 = p1[0] * cos(p) * sin(y);
+        double tx = pow( abs(p1[0]/s[0]), 2.0/e2);
+        double ty = pow( abs(p1[1]/s[1]), 2.0/e2);
+        double tz = pow( abs(p1[2]/s[2]), 2.0/e1);
+        double F1 = pow( pow( tx + ty, e2/e1) + tz, e1)-1.0;
+
+        double tmp1 = 2.0 * coeff * F1;
+
+        double t19 = c[0] * cos(p) * cos(y);
+        double t18 = sin(r) * sin(y) + cos(r) * cos(y) * sin(p);
+        double t17 = cos(r) * sin(y) - cos(y) * sin(p) * sin(r);
+        double t16 = cos(r) * cos(y);
+        double t15 = cos(y) * sin(r);
+        double t14 = c[0] * cos(p) * sin(y);
+        double t13 = p1[2] * cos(p) * sin(r);
+        double t12 = cos(r) * sin(p) * sin(y);
         double t11 = sin(p) * sin(r) * sin(y);
-        double t10 = cos(y) * sin(r) - cos(r) * sin(p) * sin(y);
-        double t9 = c[0] - p1[1] * (t17 - t15) + p1[2] * t14 + t16;
-        double t8 = c[1] + p1[1] * (t13 + t11) - p1[2] * t10 + t12;
-        double t7 = c[2] - p1[0] * sin(p) + p1[2] * cos(p) * cos(r) + p1[1] * cos(p) * sin(r);
+        double t10 = p1[2] * cos(p) * cos(r);
+        double t9 = c[1] * t17 - c[2] * t18 - p1[2] * sin(p) - t19 + p1[0] * cos(p) * cos(y) + p1[1] * cos(p) * sin(y);
+        double t8 = c[1] * (t16 + t11) - c[2] * (t15 - t12) + p1[0] * t17 - p1[1] * (t16 + t11) + t14 - t13;
+        double t7 = p1[0] * t18 - p1[1] * (t15 - t12) + c[0] * sin(p) - c[2] * cos(p) * cos(r) - c[1] * cos(p) * sin(r) + t10;
 
-        double t6 = pow( abs(t9)/s[0], 2.0/e2 ) + pow( abs(t8)/s[1], 2.0/e2);
-        double t5 = pow( abs(t7)/s[2], (2.0/e1 - 1) );
-        double t4 = pow( abs(t9)/s[0], (2.0/e2 - 1) );
-        double t3 = pow( abs(t8)/s[1], (2.0/e2 - 1) );
-        double t2 = pow( abs(t7)/s[2], 2.0/e1 ) + pow( abs(t6), e2/e1);
-        double t1 = pow( abs(t6), (e2/e1 - 1) );
+        double t6 = sign(t8) * pow( abs(t8)/s[1], 2.0/e2) + sign(t9) * pow( abs(t9)/s[0], 2.0/e2);
+        double t5 = pow( abs(t7)/s[2], 2.0/e1 - 1);
+        double t4 = pow( abs(t9)/s[0], 2.0/e2 - 1);
+        double t3 = pow( abs(t8)/s[1], 2.0/e2 - 1);
+        double t2 = pow( t6, e2/e1 - 1);
+        double t1 = pow( ( sign(t6) * pow( t6, e2/e1) + sign(t7) * pow( abs(t7)/s[2], 2.0/e1) ), e1 -1);
 
-        grad_f[0] += coeff * (sign(t9) * t1 * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) * t4 * 4) / (s[0]);
-        grad_f[1] += coeff * (sign(t8) * t3 * t1 * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) * 4) / (s[1]);
-        grad_f[2] += coeff * (sign(t7) * t5 * pow(abs(t2), e1-1) * (pow(abs(t2),e1)-1) * 4) / (s[2]);
+        double grad0_0 = (2 * sign(t9) * cos(p) * cos(y) * t4) / (e2 * s[0]);
+        double grad0_1 = (2 * sign(t8) * cos(p) * sin(y) * t3) / (e2 * s[1]);
+        double grad0_2 = (2 * sign(t7) * sin(p) * t5 ) / (e1 * s[2]);
 
-        double grad3_1 = e1 * pow(abs(t2), e1-1) * (pow(abs(t2),e1) - 1);
-        double grad3_2 = (sign(t9) * (p1[1] * t14 + p1[2] * (t17 - t15)) * t4 * 2) / (e2 * s[0]);
-        double grad3_3 = (sign(t8) * t3 * (p1[1] * t10 + p1[2] * (t13 + t11)) * 2) / (e2 * s[1]);
-        double grad3_4 = (sign(t7) * (p1[1] * cos(p) * cos(r) - p1[2] * cos(p) * sin(r)) * t5 * 2) / (e1 * s[2]);
+        grad_f[0] += - tmp1 * e1 * t1 * ( e2/e1 * t2 * (grad0_0 - grad0_1) - grad0_2);
 
-        grad_f[3] += coeff * grad3_1 * (((e2 * (grad3_2 - grad3_3) * t1)/ e1) + grad3_4) * 2;
+        double grad1_0 = (2 * sign(t9) * t4 * t17) / (e2 * s[0]);
+        double grad1_1 = (2 * sign(t8) * (t16 + t11) * t3) / (e2 * s[1]);
+        double grad1_2 = (2 * sign(t7) * cos(p) * sin(r) * t5) / (e1 * s[2]);
 
-        double grad4_1 = (sign(t9) * t4 * (p1[2] * cos(p) * cos(r) * cos(y) - p1[0] * cos(y) * sin(p) +
-                                  p1[1] * cos(p) * cos(y) * sin(r)) * 2) / (e2 * s[0]);
-        double grad4_2 = (sign(t8) * t3 * ( p1[2] * cos(p) * cos(r) * sin(y) - p1[0] * sin(p) * sin(y) +
-                                  p1[1] * cos(p) * sin(r) * sin(y)) * 2) / (e2 * s[1]);
-        double grad4_3 = (sign(t7) * t5 * (p1[0] * cos(p) + p1[2] * cos(r) * sin(p) + y * sin(p) * sin(r)) *2 ) / (e1 * s[2]);
+        grad_f[1] += tmp1 * e1 * t1 * ( e2 * t2 / e1 * (grad1_0 + grad1_1) - grad1_2);
 
-        grad_f[4] += coeff * e1 * ((e2 * t1 * (grad4_1 + grad4_2))/e1 - grad4_3) * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) * 2;
+        double grad2_0 = (2 * sign(t9) * t4 * t18) / (e2 * s[0]);
+        double grad2_1 = (2 * sign(t8) * (t15 - t12) * t3) / (e2 * s[1]);
+        double grad2_2 = (2 * sign(t7) * cos(p) * cos(r) * t5) / (e1 * s[2]);
 
-        double grad5_1 = (sign(t9) * t4 * (t17 + p1[1] * (t13 + t11) - p1[2] * t10 - t15 + t12) * 2) / (e2 * s[0]);
-        double grad5_2 = (sign(t8) *t3 * (t13 - p1[1] * (t17 - t15) + p1[2] * t14 + t11 + t16) * 2) / (e2 * s[1]);
-        double grad5_3 = (sign(t7) * cos(p) * sin(r) * t5 *2) / (e1 * s[2]);
+        grad_f[2] += - tmp1 * e1 * t1 * ( e2 * t2/e1 * (grad2_0 + grad2_1) + grad2_2);
 
-        grad_f[5] += -coeff * e1 * ( (e2 * t1 * (grad5_1 - grad5_2))/(e1) - grad5_3) * pow(abs(t2), e1-1) * (pow(abs(t2), e1) - 1) *2;
+        double grad3_0 = (2 * sign(t9) * t4 * (c[1] * t18 + c[2] * t17)) / (e2 * s[0]);
+        double grad3_1 = (2 * sign(t8) * t3 * (c[1] * (t15 - t12) + c[2] * (t16 + t11) + p1[0] * t18 - p1[1] * (t15 - t12) + t10)) / (e2 * s[1]);
+        double grad3_2 = (2 * sign(t7) * t5 * (p1[1] * (t16 + t11) - p1[0] * t17 + c[1] * cos(p) * cos(r) - c[2] * cos(p) * sin(r) + t13)) / (e1 * s[2]);
+
+        grad_f[3] += -tmp1 * e1 * t1 * (e1 * t2 / e1 * (grad3_0 + grad3_1) + grad3_2);
+
+        double grad4_0 = (2 * sign(t8) * t3 * (c[0] * sin(p) * sin(y) - p1[2] * sin(p) * sin(r) - c[2] *  cos(p) * cos(r) * sin(y) - c[1] * cos(p) * sin(r) * sin(y) +
+                                                                                p1[0] * cos(p) * cos(y) * sin(r) + p1[1] * cos(p) * sin(r) * sin(y))) / (e2 * s[1]);
+        double grad4_1 = (2 * sign(t9) * t4 * (p1[2] * cos(p) - c[0] * cos(y) * sin(p) + p1[0] * cos(y) * sin(p) + p1[1] * sin(p) * sin(y) + c[2] * cos(p) * cos(r)  * cos(y) +
+                                                                                c[1] * cos(p) * cos(y) * sin(r))) /(e2 * s[0]);
+        double grad4_2 = (2 * sign(t7) * t5 * (c[0] * cos(p) + c[2] * cos(r) * sin(p) + c[1] * sin(p) * sin(r) - p1[2] * cos(r) * sin(p) + p1[0] * cos(p) * cos(r) * cos(y) +
+                                                                                p1[1] * cos(p) * cos(r) * sin(y)))/(e1 * s[2]);
+
+        grad_f[4] += -tmp1 * e1 * t1 * ( ( e2 * t2 * grad4_0 + grad4_1 / e1)  - grad4_2);
+
+        double grad5_0 = (2 * sign(t8) * t3 * (c[2] * t18 - c[1] * t17 - t16 + p1[0] * (t16 + t11) + p1[1] * t17 - t11 + t19)) / ( e2 * s[1]);
+        double grad5_1 = (2 * sign(t9) * t4 * ( cos(p) * sin(y) + c[1] * (t16 + t11) - c[2] * (t15 - t12) + t14 + p1[1] * cos(p) * cos(y) - p1[0] * cos(p) * sin(y)))/ (e2 * s[0]);
+        double grad5_2 = (2 * sign(t7) * t5 * (p1[0] * (t15 - t12) - t15 + p1[1] * t18 + t12)) / (e1 * s[2]);
+
+        grad_f[5] += tmp1 * e1 * t1 * (( e2 * t2 * (grad5_0 + grad5_1) / e1) + grad5_2);
     }
 
     for (Ipopt::Index i=0; i<n; i++)
@@ -210,8 +237,10 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
 bool SuperQuadricNLP::eval_g(Ipopt::Index n, const Ipopt::Number *x,
                              bool new_x, Ipopt::Index m, Ipopt::Number *g)
 {
-    g[0]=x[2]-x[6];
-    return true;
+    // TEST
+    // g[0]=x[2]-x[6];
+    // return true;
+    return false;
 }
 
 /****************************************************************/
@@ -220,17 +249,19 @@ bool SuperQuadricNLP::eval_jac_g(Ipopt::Index n, const Ipopt::Number *x,
                                  Ipopt::Index *iRow, Ipopt::Index *jCol,
                                  Ipopt::Number *values)
 {
-    if (values==nullptr)
-    {
-        iRow[0]=0; jCol[0]=2;
-        iRow[1]=0; jCol[1]=6;
-    }
-    else
-    {
-        values[0]=1.0;
-        values[1]=-1.0;
-    }
-    return true;
+    // TEST
+    // if (values==nullptr)
+    // {
+    //     iRow[0]=0; jCol[0]=2;
+    //     iRow[1]=0; jCol[1]=6;
+    // }
+    // else
+    // {
+    //     values[0]=1.0;
+    //     values[1]=-1.0;
+    // }
+    // return true;
+    return false;
 }
 
 /****************************************************************/
@@ -255,7 +286,6 @@ void SuperQuadricNLP::finalize_solution(Ipopt::SolverReturn status,
                                         const Ipopt::IpoptData *ip_data,
                                         Ipopt::IpoptCalculatedQuantities *ip_cq)
 {
-    // TODO Check if the result is stored properly
     int superq_n = 11;
     result.resize(superq_n);
     for (Ipopt::Index i=0; i<3; i++)
