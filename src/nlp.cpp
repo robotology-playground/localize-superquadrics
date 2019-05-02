@@ -53,6 +53,7 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
     x_l[0]=bounds(0,0)+margin[0]; x_u[0]=bounds(0,1)-margin[0];
     x_l[1]=bounds(1,0)+margin[1]; x_u[1]=bounds(1,1)-margin[1];
     x_l[2]=bounds(2,0)+margin[2]; x_u[2]=bounds(2,1)-margin[2];
+
     // three angles in this case
     x_l[3]=0.0; x_u[3]=2.0*M_PI;
     x_l[4]=0.0; x_u[4]=M_PI;
@@ -73,9 +74,11 @@ bool SuperQuadricNLP::get_starting_point(Ipopt::Index n, bool init_x,
     x[0]=centroid[0];
     x[1]=centroid[1];
     x[2]=centroid[2];
+
     x[3]=0.0;
     x[4]=0.0;
     x[5]=0.0;
+
     return true;
 }
 
@@ -100,6 +103,7 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
     angles[0] = r;
     angles[1] = p;
     angles[2] = y;
+
     Matrix T=rpy2dcm(angles);
     T.setSubcol(c,0,3);
     T=SE3inv(T);
@@ -114,8 +118,7 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
         double ty=pow(abs( p1[1]/s[1]), 2.0/e2);
         double tz=pow(abs( p1[2]/s[2]), 2.0/e1);
         double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
-        //double penalty=(F1<0.0?inside_penalty:1.0);   // No penalty in this case
-        obj_value += F1 * F1; //*penalty;
+        obj_value += F1 * F1;
     }
 
     obj_value*=(s[0]*s[1]*s[2])/points.size();
