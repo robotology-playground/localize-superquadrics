@@ -26,7 +26,7 @@ class SuperQuadricNLP : public Ipopt::TNLP
 {
 protected:
     const std::vector<yarp::sig::Vector> &points;
-    double inside_penalty;
+    bool analytic;
 
     yarp::sig::Vector centroid;
     yarp::sig::Matrix bounds;
@@ -80,7 +80,7 @@ protected:
 public:
     /****************************************************************/
     SuperQuadricNLP(const std::vector<yarp::sig::Vector> &points_,
-                    const double inside_penalty_, const yarp::sig::Vector &object_prop);
+                    const yarp::sig::Vector &object_prop, bool analytic_);
 
     /****************************************************************/
     yarp::sig::Vector get_result() const;

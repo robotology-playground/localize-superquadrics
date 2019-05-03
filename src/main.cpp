@@ -294,7 +294,7 @@ class Localizer : public RFModule, Localizer_IDL
     bool from_file;
     bool test_derivative;
     bool viewer_enabled;
-    double inside_penalty;
+    bool analytic_gradient;
     bool closing;
 
     // New
@@ -413,14 +413,14 @@ class Localizer : public RFModule, Localizer_IDL
         app->Options()->SetNumericValue("constr_viol_tol",1e-3);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
-        app->Options()->SetIntegerValue("max_iter", 0);
+        app->Options()->SetIntegerValue("max_iter", 1000);
         app->Options()->SetStringValue("hessian_approximation","limited-memory");
         app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
         app->Options()->SetIntegerValue("print_level",test_derivative?5:0);
         app->Initialize();
 
         double t0=Time::now();
-        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points,inside_penalty, object_prop);
+        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points, object_prop, analytic_gradient);
         Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
         double t1=Time::now();
 
@@ -499,7 +499,7 @@ class Localizer : public RFModule, Localizer_IDL
 
         uniform_sample=(unsigned int)rf.check("uniform-sample",Value(1)).asInt();
         random_sample=rf.check("random-sample",Value(1.0)).asDouble();
-        inside_penalty=rf.check("inside-penalty",Value(1.0)).asDouble();
+        analytic_gradient=rf.check("analytic-gradient");
         test_derivative=rf.check("test-derivative");
         viewer_enabled=!rf.check("disable-viewer");
 
@@ -811,11 +811,11 @@ class Localizer : public RFModule, Localizer_IDL
     }
 
     /****************************************************************/
-    bool set_inside_penalty(const string &input)
+    bool set_analytic_gradient(const string &input)
     {
-        inside_penalty=(input=="on");
+        analytic_gradient=(input=="on");
 
-        yInfo() << " New value for inside_penalty " << inside_penalty;
+        yInfo() << " New value for analytic_gradient " << analytic_gradient;
 
         return true;
     }

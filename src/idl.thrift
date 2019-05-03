@@ -41,7 +41,7 @@
  */
  struct PointCloudXYZRGBA
  {
- } 
+ }
 	(
     yarp.name = "yarp::sig::PointCloudXYZRGBA"
     yarp.includefile="yarp/sig/PointCloud.h"
@@ -58,8 +58,8 @@
 	 Vector localize_superq(1: string &object_names, 2: Bottle &points);
 
      /**
-     * Set the options to remove outliers from point cloud 
-     * @param values is a bottle containing the number of points  
+     * Set the options to remove outliers from point cloud
+     * @param values is a bottle containing the number of points
      * and the radius used by the filter
      * @return true
      */
@@ -80,10 +80,10 @@
 	 bool set_random_sample(2: string &input);
 
 	 /**
-     * Set the option to inside penalty of the optimization problem on/off
+     * Set the option analytic_gradient for the optimization problem on/off
      * @param input can be on or off
      * @return true
      */
-	 bool set_inside_penalty(2: string &input);
+	 bool set_analytic_gradient(2: string &input);
 
  }
