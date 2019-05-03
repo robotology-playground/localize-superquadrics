@@ -238,7 +238,7 @@ public:
 
         vtk_transform=vtkSmartPointer<vtkTransform>::New();
         vtk_transform->Translate(r.subVector(0,2).data());
-   
+
         Vector axisangle = dcm2axis(rpy2dcm(r.subVector(3,5)* M_PI/180.0));
         vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
         vtk_transform->RotateX(-90.0); // rotate to invert y and z
@@ -533,7 +533,7 @@ class Localizer : public RFModule, Localizer_IDL
 
         for (int i = 0; i < num_vis; i++)
         {
-            Vector r(11,0.0);
+            //Vector r(11,0.0);
             vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(r, color,opacity)));
             vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
 
