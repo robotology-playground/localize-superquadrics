@@ -203,9 +203,6 @@ public:
     Superquadric(const Vector &r, const vector<double> &color,
                  const double opacity)
     {
-        // TODO Check This
-        // Now r is a 11D vector
-        yDebug()<<"r "<< r.toString();
         double bx=r[6];
         double by=r[8];
         double bz=r[7];
@@ -241,12 +238,8 @@ public:
 
         vtk_transform=vtkSmartPointer<vtkTransform>::New();
         vtk_transform->Translate(r.subVector(0,2).data());
-        // TODO Check This
-        // Now r is a 11D vector and orientation is general
+   
         Vector axisangle = dcm2axis(rpy2dcm(r.subVector(3,5)* M_PI/180.0));
-        yDebug()<< "r.subVector(3,5) "<< (r.subVector(3,5)/180.0/M_PI).toString();
-        yDebug()<<"aa "<< axisangle.toString();
-        yDebug()<<"norm "<< norm(axisangle.subVector(0,2));
         vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
         vtk_transform->RotateX(-90.0); // rotate to invert y and z
         vtk_actor->SetUserTransform(vtk_transform);
@@ -260,8 +253,6 @@ public:
         //       To get a good display, directions of axes y and z need to be swapped
         //       => parameters for y and z are inverted and a rotation of -90 degrees around x is added
 
-        // TODO Check This
-        // Now r is a 11D vector
         double bx=r[6];
         double by=r[8];
         double bz=r[7];
@@ -276,8 +267,6 @@ public:
 
         vtk_transform->Identity();
         vtk_transform->Translate(r.subVector(0,2).data());
-        // TODO Check This
-        // Now r is a 11D vector and have generic orientation
         vtk_transform->RotateWXYZ((180.0/M_PI)*axisangle[3], axisangle.subVector(0,2).data());
         vtk_transform->RotateX(-90.0); // rotate to invert y and z
         vtk_actor->SetUserTransform(vtk_transform);
@@ -298,6 +287,7 @@ class Localizer : public RFModule, Localizer_IDL
     bool closing;
 
     // New
+    int num_vis;
     string object_name;
     Vector object_prop;
     PointCloudXYZRGBA point_cloud;
@@ -312,8 +302,8 @@ class Localizer : public RFModule, Localizer_IDL
     vector<Vector> all_points,in_points,out_points,dwn_points;
     vector<vector<unsigned char>> all_colors;
 
-    unique_ptr<Points> vtk_all_points,vtk_out_points,vtk_dwn_points;
-    unique_ptr<Superquadric> vtk_superquadric;
+    vector<unique_ptr<Points>> vtk_all_points,vtk_out_points,vtk_dwn_points;
+    vector<unique_ptr<Superquadric>> vtk_superquadrics;
 
     vtkSmartPointer<vtkRenderer> vtk_renderer;
     vtkSmartPointer<vtkRenderWindow> vtk_renderWindow;
@@ -410,7 +400,6 @@ class Localizer : public RFModule, Localizer_IDL
     {
         Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
         app->Options()->SetNumericValue("tol",1e-6);
-        app->Options()->SetNumericValue("constr_viol_tol",1e-3);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
         app->Options()->SetIntegerValue("max_iter", 1000);
@@ -424,7 +413,6 @@ class Localizer : public RFModule, Localizer_IDL
         Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
         double t1=Time::now();
 
-        // TODO Check the result is passed properly
         Vector r=nlp->get_result();
         yInfo()<<"center   = ("<<r.subVector(0,2).toString(3,3)<<")";
         yInfo()<<"orientation    ="<<r.subVector(3,5).toString(3,3)<<"[deg]";
@@ -439,6 +427,8 @@ class Localizer : public RFModule, Localizer_IDL
         Rand::init();
 
         object_prop.resize(5);
+
+        num_vis = 5;
 
         from_file=rf.check("file");
         if (from_file)
@@ -530,18 +520,9 @@ class Localizer : public RFModule, Localizer_IDL
         removeOutliers();
         sampleInliers();
 
-        vtk_all_points=unique_ptr<Points>(new Points(all_points,2));
-        vtk_out_points=unique_ptr<Points>(new Points(out_points,4));
-        vtk_dwn_points=unique_ptr<Points>(new Points(dwn_points,1));
-
-        vtk_all_points->set_colors(all_colors);
-        vtk_out_points->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
-        vtk_dwn_points->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
-
         Vector r(11,0.0);
         if (dwn_points.size()>0)
             r=localizeSuperquadric();
-        vtk_superquadric=unique_ptr<Superquadric>(new Superquadric(r,color,opacity));
 
         vtk_renderer=vtkSmartPointer<vtkRenderer>::New();
         vtk_renderWindow=vtkSmartPointer<vtkRenderWindow>::New();
@@ -550,11 +531,27 @@ class Localizer : public RFModule, Localizer_IDL
         vtk_renderWindowInteractor=vtkSmartPointer<vtkRenderWindowInteractor>::New();
         vtk_renderWindowInteractor->SetRenderWindow(vtk_renderWindow);
 
-        vtk_renderer->AddActor(vtk_all_points->get_actor());
-        vtk_renderer->AddActor(vtk_out_points->get_actor());
-        if (dwn_points.size()!=in_points.size())
-            vtk_renderer->AddActor(vtk_dwn_points->get_actor());
-        vtk_renderer->AddActor(vtk_superquadric->get_actor());
+        for (int i = 0; i < num_vis; i++)
+        {
+            Vector r(11,0.0);
+            vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(r, color,opacity)));
+            vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
+
+            vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,2)));
+            vtk_out_points.push_back(unique_ptr<Points>(new Points(out_points,4)));
+            vtk_dwn_points.push_back(unique_ptr<Points>(new Points(dwn_points,1)));
+
+            vtk_all_points[i]->set_colors(all_colors);
+            vtk_out_points[i]->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
+            vtk_dwn_points[i]->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
+
+            vtk_renderer->AddActor(vtk_all_points[i]->get_actor());
+            vtk_renderer->AddActor(vtk_out_points[i]->get_actor());
+            if (dwn_points.size()!=in_points.size())
+                vtk_renderer->AddActor(vtk_dwn_points[i]->get_actor());
+
+        }
+
         vtk_renderer->SetBackground(backgroundColor.data());
 
         vtk_axes=vtkSmartPointer<vtkAxesActor>::New();
@@ -567,7 +564,7 @@ class Localizer : public RFModule, Localizer_IDL
         vtk_widget->InteractiveOn();
 
         vector<double> bounds(6),centroid(3);
-        vtk_all_points->get_polydata()->GetBounds(bounds.data());
+        vtk_all_points[0]->get_polydata()->GetBounds(bounds.data());
         for (size_t i=0; i<centroid.size(); i++)
             centroid[i]=0.5*(bounds[i<<1]+bounds[(i<<1)+1]);
 
@@ -608,12 +605,32 @@ class Localizer : public RFModule, Localizer_IDL
     }
 
     /****************************************************************/
-    Vector localize_superq(const string &object_name, const Bottle &points_bottle)
+    bool reset_visualization()
+    {
+        Vector r(11,0.0);
+        all_points.clear();
+        all_colors.clear();
+        out_points.clear();
+        dwn_points.clear();
+
+        for (size_t i = 0 ; i < num_vis ; i++)
+        {
+            vtk_all_points[i]->set_points(all_points);
+            vtk_all_points[i]->set_colors(all_colors);
+            vtk_out_points[i]->set_points(out_points);
+            vtk_dwn_points[i]->set_points(dwn_points);
+            vtk_superquadrics[i]->set_parameters(r);
+        }
+
+        return true;
+    }
+
+    /****************************************************************/
+    Vector localize_superq(const string &object_name, const Bottle &points_bottle, int object_num)
     {
         bool success = point_cloud.fromBottle(points_bottle);
         if (success)
         {
-            yDebug() << "points no. "<< point_cloud.size();
             if (point_cloud.size()>0)
             {
                 LockGuard lg(mutex);
@@ -635,11 +652,10 @@ class Localizer : public RFModule, Localizer_IDL
                     c[1]=point_cloud(i).g;
                     c[2]=point_cloud(i).b;
                     all_points.push_back(p);
-                    // all_colors.push_back(c);
+                    all_colors.push_back(c);
                 }
 
                 // Ask object dimensions and shape to OPC
-                // TODO to be tested
                 Bottle cmd,reply;
                 cmd.addVocab(Vocab::encode("ask"));
                 Bottle &content=cmd.addList();
@@ -742,13 +758,11 @@ class Localizer : public RFModule, Localizer_IDL
 
                 Vector r=localizeSuperquadric();
 
-                yDebug()<<"estimated r "<<r.toString();
-
-                vtk_all_points->set_points(all_points);
-                vtk_all_points->set_colors(all_colors);
-                vtk_out_points->set_points(out_points);
-                vtk_dwn_points->set_points(dwn_points);
-                vtk_superquadric->set_parameters(r);
+                vtk_all_points[object_num]->set_points(all_points);
+                vtk_all_points[object_num]->set_colors(all_colors);
+                vtk_out_points[object_num]->set_points(out_points);
+                vtk_dwn_points[object_num]->set_points(dwn_points);
+                vtk_superquadrics[object_num]->set_parameters(r);
 
                 return r;
             }

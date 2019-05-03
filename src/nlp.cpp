@@ -286,7 +286,7 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
              grad_p = s[0]*s[1]*s[2] * obj_value/points.size();
 
              x_tmp[j] -= eps;
-;
+
              c[0]=x_tmp[0];
              c[1]=x_tmp[1];
              c[2]=x_tmp[2];
