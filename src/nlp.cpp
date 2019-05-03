@@ -28,10 +28,6 @@ bool SuperQuadricNLP::get_nlp_info(Ipopt::Index &n, Ipopt::Index &m,
                                    IndexStyleEnum &index_style)
 {
     n=6;
-    // TEST
-    //m=1;
-    //nnz_jac_g=2;
-    //nnz_h_lag=0;
     m = nnz_jac_g = nnz_h_lag = 0;
     index_style=TNLP::C_STYLE;
     return true;
@@ -58,9 +54,7 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
     x_l[3]=0.0; x_u[3]=2.0*M_PI;
     x_l[4]=0.0; x_u[4]=M_PI;
     x_l[5]=0.0; x_u[5]=2.0*M_PI;
-    // limit on z-min
-    // TEST
-    //g_l[0]=bounds(2,0); g_u[0]=numeric_limits<double>::infinity();
+
     return true;
 }
 
@@ -110,6 +104,7 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
 
     obj_value=0.0;
     Vector p1(4,1.0);
+
     for (auto &p:points)
     {
         p1.setSubvector(0,p);
@@ -327,9 +322,6 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
 bool SuperQuadricNLP::eval_g(Ipopt::Index n, const Ipopt::Number *x,
                              bool new_x, Ipopt::Index m, Ipopt::Number *g)
 {
-    // TEST
-    // g[0]=x[2]-x[6];
-    // return true;
     return true;
 }
 
@@ -339,18 +331,6 @@ bool SuperQuadricNLP::eval_jac_g(Ipopt::Index n, const Ipopt::Number *x,
                                  Ipopt::Index *iRow, Ipopt::Index *jCol,
                                  Ipopt::Number *values)
 {
-    // TEST
-    // if (values==nullptr)
-    // {
-    //     iRow[0]=0; jCol[0]=2;
-    //     iRow[1]=0; jCol[1]=6;
-    // }
-    // else
-    // {
-    //     values[0]=1.0;
-    //     values[1]=-1.0;
-    // }
-    // return true;
     return true;
 }
 

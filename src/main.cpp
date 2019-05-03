@@ -263,7 +263,7 @@ public:
 
         vtk_sample->SetModelBounds(-bx,bx,-by,by,-bz,bz);
 
-        Vector axisangle = dcm2axis(rpy2dcm(r.subVector(3,5)));
+        Vector axisangle = dcm2axis(rpy2dcm(r.subVector(3,5) * M_PI/180.0));
 
         vtk_transform->Identity();
         vtk_transform->Translate(r.subVector(0,2).data());
@@ -402,6 +402,7 @@ class Localizer : public RFModule, Localizer_IDL
         app->Options()->SetNumericValue("tol",1e-6);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
+        app->Options()->SetStringValue("nlp_scaling_method","gradient-based");
         app->Options()->SetIntegerValue("max_iter", 1000);
         app->Options()->SetStringValue("hessian_approximation","limited-memory");
         app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
@@ -763,6 +764,10 @@ class Localizer : public RFModule, Localizer_IDL
                 vtk_out_points[object_num]->set_points(out_points);
                 vtk_dwn_points[object_num]->set_points(dwn_points);
                 vtk_superquadrics[object_num]->set_parameters(r);
+
+                vtk_camera->SetPosition(r[0]+0.5,r[1],r[2]+0.4);
+                vtk_camera->SetFocalPoint(r.subVector(0,2).data());
+                vtk_camera->SetViewUp(0.0,0.0,1.0);
 
                 return r;
             }
