@@ -717,7 +717,7 @@ class Localizer : public RFModule, Localizer_IDL
                                             object_prop[1]=b1->get(1).asDouble();
                                             object_prop[2]=b1->get(2).asDouble();
                                             object_prop[3]=b1->get(3).asDouble();
-                                            object_prop[4]=b1->get(3).asDouble();
+                                            object_prop[4]=b1->get(4).asDouble();
 
                                             yInfo() << "Received object dimension and shape " << object_prop.toString();
                                         }
