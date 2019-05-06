@@ -663,7 +663,7 @@ class Localizer : public RFModule, Localizer_IDL
                 Bottle &cond_1=content.addList();
                 cond_1.addString("entity");
                 cond_1.addString("==");
-                cond_1.addString("object");
+                cond_1.addString("geometric_properties");
                 content.addString("&&");
                 Bottle &cond_2=content.addList();
                 cond_2.addString("name");
