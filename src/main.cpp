@@ -407,6 +407,7 @@ class Localizer : public RFModule, Localizer_IDL
         app->Options()->SetStringValue("hessian_approximation","limited-memory");
         app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
         app->Options()->SetIntegerValue("print_level",test_derivative?5:0);
+        app->Options()->SetStringValue("derivative_test_print_all", test_derivative?"yes":"no");
         app->Initialize();
 
         double t0=Time::now();
@@ -669,6 +670,14 @@ class Localizer : public RFModule, Localizer_IDL
                 cond_2.addString("name");
                 cond_2.addString("==");
                 cond_2.addString(object_name);
+
+                if(rpcOPC.getOutputCount() < 1)
+                {
+                    yError("missing connection to OPC!");
+
+                    vector<double> r_vect(11, 0.0);
+                    return r_vect;
+                }
 
                 rpcOPC.write(cmd, reply);
 
