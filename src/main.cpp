@@ -524,7 +524,40 @@ class Localizer : public RFModule, Localizer_IDL
 
         Vector r(11,0.0);
         if (dwn_points.size()>0)
+        {
             r=localizeSuperquadric();
+
+            if (rf.check("real-pose"))
+            {
+                Vector real_pose(6,0.0);
+                if (const Bottle *ptr=rf.find("real-pose").asList())
+                {
+                    for (size_t i=0; i< 3; i++)
+                        real_pose[i]=ptr->get(i).asDouble();
+                    for (size_t i=3; i< 6; i++)
+                        real_pose[i]=ptr->get(i).asDouble() * M_PI /180.0;
+
+                }
+
+                cout << endl;
+                cout << "|| ------------------------------------------------- ||" << endl;
+
+                Vector pose_degs(6,0.0);
+                pose_degs[0] = r[0];  pose_degs[1] = r[1]; pose_degs[2] = r[2];
+                pose_degs[3] = r[3] * M_PI /180.0;  pose_degs[4] = r[4] * M_PI /180.0; pose_degs[5] = r[5] * M_PI /180.0;
+                yDebug() << " Estimated pose :"<< pose_degs.toString();
+
+                printFinalCost(pose_degs);
+                cout << "|| ------------------------------------------------- ||" << endl;
+                cout << endl;
+                cout << "|| ------------------------------------------------- ||" << endl;
+                yDebug() << " Real pose :"<< real_pose.toString();
+                printFinalCost(real_pose);
+                cout << "|| ------------------------------------------------- ||" << endl;
+                cout << endl;
+            }
+
+        }
 
         vtk_renderer=vtkSmartPointer<vtkRenderer>::New();
         vtk_renderWindow=vtkSmartPointer<vtkRenderWindow>::New();
@@ -592,6 +625,50 @@ class Localizer : public RFModule, Localizer_IDL
         }
 
         return true;
+    }
+
+    /****************************************************************/
+    void printFinalCost(Vector &pose)
+    {
+        Vector c(3),s(3);
+        c[0]=pose[0];
+        c[1]=pose[1];
+        c[2]=pose[2];
+        const double &r=pose[3];
+        const double &p=pose[4];
+        const double &y=pose[5];
+        s[0]=object_prop[0];
+        s[1]=object_prop[1];
+        s[2]=object_prop[2];
+        const double &e1=object_prop[3];
+        const double &e2=object_prop[4];
+
+        Vector angles(3,0.0);
+        angles[0] = r;
+        angles[1] = p;
+        angles[2] = y;
+
+        Matrix T=rpy2dcm(angles);
+        T.setSubcol(c,0,3);
+        T=SE3inv(T);
+
+        double value=0.0;
+        Vector p1(4,1.0);
+
+        for (auto &p:dwn_points)
+        {
+            p1.setSubvector(0,p);
+            p1=T*p1;
+            double tx=pow(abs( p1[0]/s[0]), 2.0/e2);
+            double ty=pow(abs( p1[1]/s[1]), 2.0/e2);
+            double tz=pow(abs( p1[2]/s[2]), 2.0/e1);
+            double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
+            value += F1 * F1;
+        }
+
+        value*=(s[0]*s[1]*s[2])/dwn_points.size();
+
+        yInfo() << "|| Final cost function :"<< value;
     }
 
     /****************************************************************/
