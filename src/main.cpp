@@ -522,6 +522,8 @@ class Localizer : public RFModule, Localizer_IDL
         removeOutliers();
         sampleInliers();
 
+        Vector real_pose(6,0.0);
+
         Vector r(11,0.0);
         if (dwn_points.size()>0)
         {
@@ -529,14 +531,12 @@ class Localizer : public RFModule, Localizer_IDL
 
             if (rf.check("real-pose"))
             {
-                Vector real_pose(6,0.0);
                 if (const Bottle *ptr=rf.find("real-pose").asList())
                 {
                     for (size_t i=0; i< 3; i++)
                         real_pose[i]=ptr->get(i).asDouble();
                     for (size_t i=3; i< 6; i++)
                         real_pose[i]=ptr->get(i).asDouble() * M_PI /180.0;
-
                 }
 
                 cout << endl;
@@ -569,21 +569,54 @@ class Localizer : public RFModule, Localizer_IDL
         for (int i = 0; i < num_vis; i++)
         {
             //Vector r(11,0.0);
-            vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(r, color,opacity)));
-            vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
 
-            vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,2)));
-            vtk_out_points.push_back(unique_ptr<Points>(new Points(out_points,4)));
-            vtk_dwn_points.push_back(unique_ptr<Points>(new Points(dwn_points,1)));
+            if (rf.check("real-pose") && i  == 0)
+            {
+                Vector new_r(11,0.0);
+                for (size_t i=0; i < 3; i++)
+                    new_r[i] = real_pose[i];
+                for (size_t i=3; i < 6; i++)
+                    new_r[i] = real_pose[i] * 180.0/M_PI;
+                for (size_t i=6; i < 11; i++)
+                    new_r[i] = r[i];
 
-            vtk_all_points[i]->set_colors(all_colors);
-            vtk_out_points[i]->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
-            vtk_dwn_points[i]->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
+                yDebug() << "new_r " << new_r.toString();
 
-            vtk_renderer->AddActor(vtk_all_points[i]->get_actor());
-            vtk_renderer->AddActor(vtk_out_points[i]->get_actor());
-            if (dwn_points.size()!=in_points.size())
-                vtk_renderer->AddActor(vtk_dwn_points[i]->get_actor());
+                vector<double> color={0.5,0.5,0.0};
+                vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(new_r, color,opacity)));
+                vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
+
+                vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,2)));
+                vtk_out_points.push_back(unique_ptr<Points>(new Points(out_points,4)));
+                vtk_dwn_points.push_back(unique_ptr<Points>(new Points(dwn_points,1)));
+
+                vtk_all_points[i]->set_colors(all_colors);
+                vtk_out_points[i]->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
+                vtk_dwn_points[i]->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
+
+                vtk_renderer->AddActor(vtk_all_points[i]->get_actor());
+                vtk_renderer->AddActor(vtk_out_points[i]->get_actor());
+                if (dwn_points.size()!=in_points.size())
+                    vtk_renderer->AddActor(vtk_dwn_points[i]->get_actor());
+            }
+            else
+            {
+                vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(r, color,opacity)));
+                vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
+
+                vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,2)));
+                vtk_out_points.push_back(unique_ptr<Points>(new Points(out_points,4)));
+                vtk_dwn_points.push_back(unique_ptr<Points>(new Points(dwn_points,1)));
+
+                vtk_all_points[i]->set_colors(all_colors);
+                vtk_out_points[i]->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
+                vtk_dwn_points[i]->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
+
+                vtk_renderer->AddActor(vtk_all_points[i]->get_actor());
+                vtk_renderer->AddActor(vtk_out_points[i]->get_actor());
+                if (dwn_points.size()!=in_points.size())
+                    vtk_renderer->AddActor(vtk_dwn_points[i]->get_actor());
+            }
 
         }
 
