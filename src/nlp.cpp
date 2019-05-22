@@ -41,20 +41,17 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
 {
 
     // TODO Check if using information on dimensions could be useful here
-    Vector margin(3);
-    margin[0]=0.25*(bounds(0,1)-bounds(0,0));
-    margin[1]=0.25*(bounds(1,1)-bounds(1,0));
-    margin[2]=0.25*(bounds(2,1)-bounds(2,0));
+    double margin = 2*std::max(object_prop[0],std::max(object_prop[1], object_prop[2]));
 
     // center
-    x_l[0]=bounds(0,0)+margin[0]; x_u[0]=bounds(0,1)-margin[0];
-    x_l[1]=bounds(1,0)+margin[1]; x_u[1]=bounds(1,1)-margin[1];
-    x_l[2]=bounds(2,0)+margin[2]; x_u[2]=bounds(2,1)-margin[2];
+    x_l[0]=centroid[0]-margin; x_u[0]=centroid[0]+margin;
+    x_l[1]=centroid[1]-margin; x_u[1]=centroid[1]+margin;
+    x_l[2]=centroid[2]-margin; x_u[2]=centroid[2]+margin;
 
     // three angles in this case
-    x_l[3]=0.0; x_u[3]=2.0*M_PI;
-    x_l[4]=0.0; x_u[4]=M_PI;
-    x_l[5]=0.0; x_u[5]=2.0*M_PI;
+    x_l[3]=-numeric_limits<double>::infinity(); x_u[3]=numeric_limits<double>::infinity();
+    x_l[4]=-numeric_limits<double>::infinity(); x_u[4]=numeric_limits<double>::infinity();
+    x_l[5]=-numeric_limits<double>::infinity(); x_u[5]=numeric_limits<double>::infinity();
 
     return true;
 }
