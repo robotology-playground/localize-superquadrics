@@ -153,64 +153,91 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
         double sp = sin(p);
         double sy = sin(y);
 
-        double t15 = cr * cy;
-        double t14 = sp * sr * sy;
-        double t13 = cr * sy - cy * sp * sr;
-        double t12 = cy * sr;
-        double t11 = cr * sp * sy;
-        double t10 = sr * sy + cr * cy * sp;
+        Matrix Rx(3,3);
+        Rx[0][0] = 1;
+        Rx[1][1] = cr;
+        Rx[2][2] = cr;
+        Rx[1][2] = -sr;
+        Rx[2][1] = sr;
+        Matrix Ry(3,3);
+        Ry[1][1] = 1;
+        Ry[0][0] = cp;
+        Ry[2][2] = cp;
+        Ry[0][2] = sp;
+        Ry[2][0] = -sp;
+        Matrix Rz(3,3);
+        Rz[2][2] = 1;
+        Rz[0][0] = cy;
+        Rz[1][1] = cy;
+        Rz[0][1] = -sy;
+        Rz[1][0] = sy;
 
-        for (auto &point:points)
+        Matrix dRx(3,3);
+        dRx[1][1] = -sr;
+        dRx[2][2] = -sr;
+        dRx[1][2] = -cr;
+        dRx[2][1] = cr;
+        Matrix dRy(3,3);
+        dRy[0][0] = -sp;
+        dRy[2][2] = -sp;
+        dRy[0][2] = cp;
+        dRy[2][0] = -cp;
+        Matrix dRz(3,3);
+        dRz[0][0] = -sy;
+        dRz[1][1] = -sy;
+        dRz[0][1] = -cy;
+        dRz[1][0] = cy;
+
+        Matrix R = Rz*Ry*Rx;
+        Matrix invR = R.transposed();
+
+        Matrix dX_dT = -1.0 * invR;
+        Matrix dX_dO_r = dRx.transposed() * Ry.transposed() * Rz.transposed();
+        Matrix dX_dO_p = Rx.transposed() * dRy.transposed() * Rz.transposed();
+        Matrix dX_dO_y = Rx.transposed() * Ry.transposed() * dRz.transposed();
+
+        Vector invT = -1.0 * invR * c;
+
+        for (auto &p:points)
         {
-            double t9 = -cp * cy * (c[0]-point[0]) - cp * sy * (c[1]-point[1]) + sp * (c[2]-point[2]);
-            double t8 = t13 * (c[0]-point[0]) - (t15 + t14) * (c[1]-point[1]) - cp * sr * (c[2]-point[2]);
-            double t7 = t10 * (c[0]-point[0]) - (t12 - t11) * (c[1]-point[1]) + cp * cr * (c[2]-point[2]);
+            Vector X = invR*p+invT;
 
-            double t6 = pow( fabs(t9/s[0]), 2.0/e2) + pow( fabs(t8/s[1]), 2.0/e2);
+            double tx = pow( fabs( X[0]/s[0] ), 2.0/e2);
+            double ty = pow( fabs( X[1]/s[1] ), 2.0/e2);
+            double tz = pow( fabs( X[2]/s[2] ), 2.0/e1);
 
-            double t5 = pow( fabs(t9/s[0]), 2.0/e2-1);
-            double t4 = pow( fabs(t7/s[2]), 2.0/e1-1);
-            double t3 = pow( fabs(t8/s[1]), 2.0/e2-1);
+            double tmp_1 = pow(tx+ty, e2/e1) + tz;
+            double F1 = pow(tmp_1, e1) - 1.0;
 
-            double t2 = pow( t6, e2/e1-1);
-            double t1 = pow( pow( fabs(t7/s[2]), 2.0/e1) + pow(t6, e2/e1), e1-1);
+            double tmp_2 = pow(tmp_1, e1-1.0);
+            double tmp_3 = pow(tx+ty, e2/e1-1.0);
 
-            double F1 = pow( pow( fabs(t7/s[2]), 2.0/e1) + pow(t6, e2/e1), e1) - 1.0;
+            double dF_dX0 = 2 * tmp_2 * tmp_3 * sign(X[0]) * pow(fabs(X[0]/s[0]), 2.0/e2-1.0) / s[0];
+            double dF_dX1 = 2 * tmp_2 * tmp_3 * sign(X[1]) * pow(fabs(X[1]/s[1]), 2.0/e2-1.0) / s[1];
+            double dF_dX2 = 2 * tmp_2 * sign(X[2]) * pow(fabs(X[2]/s[2]), 2.0/e1-1.0) / s[2];
 
-            double grad0_0 = (2 * sign(t8) * t13 * t3) / (e2 * s[1]);
-            double grad0_1 = (2 * sign(t9) * cp * cy * t5) / (e2 * s[0]);
-            double grad0_2 = (2 * sign(t7) * t10 * t4) / (e1 * s[2]);
+            grad_f[0] += F1 * (dF_dX0 * dX_dT[0][0] + dF_dX1 * dX_dT[1][0] + dF_dX2 * dX_dT[2][0]);
+            grad_f[1] += F1 * (dF_dX0 * dX_dT[0][1] + dF_dX1 * dX_dT[1][1] + dF_dX2 * dX_dT[2][1]);
+            grad_f[2] += F1 * (dF_dX0 * dX_dT[0][2] + dF_dX1 * dX_dT[1][2] + dF_dX2 * dX_dT[2][2]);
 
-            grad_f[0] += F1 * e1 * t1 * ( e2/e1 * t2 * (grad0_0 - grad0_1) - grad0_2);
+            double p0 = p[0] - c[0];
+            double p1 = p[1] - c[1];
+            double p2 = p[2] - c[2];
 
-            double grad1_0 = (2 * sign(t8) * (t15 + t14) * t3) / (e2 * s[1]);
-            double grad1_1 = (2 * sign(t9) * cp * sy * t5) / (e2 * s[0]);
-            double grad1_2 = (2 * sign(t7) * (t12 - t11) * t4) / (e1 * s[2]);
+            double dX_dO[3][3];
+            dX_dO[0][0] = dX_dO_r[0][0] * p0 + dX_dO_r[0][1] * p1 + dX_dO_r[0][2] * p2;
+            dX_dO[1][0] = dX_dO_r[1][0] * p0 + dX_dO_r[1][1] * p1 + dX_dO_r[1][2] * p2;
+            dX_dO[2][0] = dX_dO_r[2][0] * p0 + dX_dO_r[2][1] * p1 + dX_dO_r[2][2] * p2;
+            dX_dO[0][1] = dX_dO_p[0][0] * p0 + dX_dO_p[0][1] * p1 + dX_dO_p[0][2] * p2;
+            dX_dO[1][1] = dX_dO_p[1][0] * p0 + dX_dO_p[1][1] * p1 + dX_dO_p[1][2] * p2;
+            dX_dO[2][1] = dX_dO_p[2][0] * p0 + dX_dO_p[2][1] * p1 + dX_dO_p[2][2] * p2;
+            dX_dO[0][2] = dX_dO_y[0][0] * p0 + dX_dO_y[0][1] * p1 + dX_dO_y[0][2] * p2;
+            dX_dO[1][2] = dX_dO_y[1][0] * p0 + dX_dO_y[1][1] * p1 + dX_dO_y[1][2] * p2;
+            dX_dO[2][2] = dX_dO_y[2][0] * p0 + dX_dO_y[2][1] * p1 + dX_dO_y[2][2] * p2;
 
-            grad_f[1] += -F1 * e1 * t1 * ( e2/e1 * t2 * (grad1_0 + grad1_1) + grad1_2);
-
-            double grad2_0 = (2 * sign(t9) * sp * t5) / (e2 * s[0]);
-            double grad2_1 = (2 * sign(t8) * cp * sr * t3) / (e2 * s[1]);
-            double grad2_2 = (2 * sign(t7) * cp * cr * t4) / (e1 * s[2]);
-
-            grad_f[2] += F1 * e1 * t1 * ( e2/e1 * t2 * (grad2_0 - grad2_1) + grad2_2);
-
-            double grad3_0 = (2 * sign(t7) * t4 * t8) / (e1 * s[2]);
-            double grad3_1 = (2 * sign(t8) * t3 * t2 * t7) / (e1 * s[1]);
-
-            grad_f[3] += F1 * e1 * t1 * (grad3_0 - grad3_1);
-
-            double grad4_0 = 2 * sign(t9) * t5 / (e2 * s[0]) * ( cy * sp * (c[0]-point[0]) + sp * sy * (c[1]-point[1]) + cp * (c[2]-point[2]) );
-            double grad4_1 = 2 * sign(t8) * t3 / (e2 * s[1]) * ( - cp * cy * sr * (c[0]-point[0]) - cp * sr * sy * (c[1]-point[1]) + sp * sr * (c[2]-point[2]) );
-            double grad4_2 = 2 * sign(t7) * t4 / (e1 * s[2]) * ( - cp * cy * cr * (c[0]-point[0]) - cp * cr * sy * (c[1]-point[1]) + sp * cr * (c[2]-point[2]) );
-
-            grad_f[4] += F1 * e1 * t1 * ( e2/e1 * t2 * (grad4_0 + grad4_1) - grad4_2);
-
-            double grad5_0 = 2 * sign(t8) * t3 / (e2 * s[1]) * ( (t15 + t14) * (c[0]-point[0]) + t13 * (c[1]-point[1]));
-            double grad5_1 = 2 * sign(t9) * t5 / (e2 * s[0]) * ( cp * sy * (c[0]-point[0]) - cp * cy * (c[1]-point[1]));
-            double grad5_2 = 2 * sign(t7) * t4 / (e1 * s[2]) * ( (t12 - t11) * (c[0]-point[0]) + t10 * (c[1]-point[1]));
-
-            grad_f[5] += F1 * e1 * t1 * (( e2/e1 * t2 * (grad5_0 + grad5_1)) + grad5_2);
+            grad_f[3] += F1 * (dF_dX0 * dX_dO[0][0] + dF_dX1 * dX_dO[1][0] + dF_dX2 * dX_dO[2][0]);
+            grad_f[4] += F1 * (dF_dX0 * dX_dO[0][1] + dF_dX1 * dX_dO[1][1] + dF_dX2 * dX_dO[2][1]);
+            grad_f[5] += F1 * (dF_dX0 * dX_dO[0][2] + dF_dX1 * dX_dO[1][2] + dF_dX2 * dX_dO[2][2]);
         }
 
         double coeff = 2.0 * s[0] * s[1] * s[2] / points.size();
