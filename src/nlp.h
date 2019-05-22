@@ -29,6 +29,7 @@ protected:
     bool analytic;
 
     yarp::sig::Vector centroid;
+    yarp::sig::Vector initial_angles;
     yarp::sig::Matrix bounds;
     yarp::sig::Vector result;
     yarp::sig::Vector object_prop;

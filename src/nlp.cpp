@@ -14,6 +14,7 @@
 #include <limits>
 
 #include <yarp/math/Math.h>
+#include <yarp/math/SVD.h>
 
 #include "nlp.h"
 
@@ -69,9 +70,12 @@ bool SuperQuadricNLP::get_starting_point(Ipopt::Index n, bool init_x,
     x[1]=centroid[1];
     x[2]=centroid[2];
 
-    x[3]=0.0;
-    x[4]=0.0;
-    x[5]=0.0;
+    // x[3]=0.0;
+    // x[4]=0.0;
+    // x[5]=0.0;
+    x[3]=initial_angles[0];
+    x[4]=initial_angles[1];
+    x[5]=initial_angles[2];
 
     return true;
 }
@@ -380,9 +384,54 @@ SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
             bounds(2,1)=p[2];
     }
 
+    // Compute centroid of point cloud
     centroid.resize(3,0.0);
     for (unsigned int i=0; i<centroid.length(); i++)
         centroid[i]=0.5*(bounds(i,0)+bounds(i,1));
+
+    // Compute orientation of point cloud
+    Matrix M=zeros(3,3);
+    Matrix R(3,3);
+    Matrix u(3,3);
+    Matrix v(3,3);
+
+    Vector s(3,0.0);
+    Vector n(3,0.0);
+    Vector o(3,0.0);
+    Vector a(3,0.0);
+
+    for (auto& point: points)
+    {
+        M(0,0) = M(0,0) + (point(1)-centroid(1))*(point(1)-centroid(1)) + (point(2)-centroid(2))*(point(2)-centroid(2));
+        M(0,1) = M(0,1) - (point(1)-centroid(1))*(point(0)-centroid(0));
+        M(0,2) = M(0,2) - (point(2)-centroid(2))*(point(0)-centroid(0));
+        M(1,1) = M(1,1) + (point(0)-centroid(0))*(point(0)-centroid(0)) + (point(2)-centroid(2))*(point(2)-centroid(2));
+        M(2,2) = M(2,2) + (point(1)-centroid(1))*(point(1)-centroid(1)) + (point(0)-centroid(0))*(point(0)-centroid(0));
+        M(1,2) = M(1,2) - (point(2)-centroid(2))*(point(1)-centroid(1));
+    }
+
+    M(0,0) = M(0,0)/points.size();
+    M(0,1) = M(0,1)/points.size();
+    M(0,2) = M(0,2)/points.size();
+    M(1,1) = M(1,1)/points.size();
+    M(2,2) = M(2,2)/points.size();
+    M(1,2) = M(1,2)/points.size();
+
+    M(1,0) = M(0,1);
+    M(2,0) = M(0,2);
+    M(2,1) = M(1,2);
+
+    SVDJacobi(M,u,s,v);
+    n=u.getCol(0);
+    o=u.getCol(1);
+    a=u.getCol(2);
+
+    R.setCol(0,n);
+    R.setCol(1,o);
+    R.setCol(2,a);
+
+    initial_angles.resize(3,0.0);
+    initial_angles = dcm2rpy(R);
 }
 
 /****************************************************************/
