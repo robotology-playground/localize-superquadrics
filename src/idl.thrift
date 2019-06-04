@@ -55,7 +55,7 @@
      * @param object_name is the object name
      * @return a 5D Vector containing the dimensions and shape
      */
-	 list<double> localize_superq(1: string &object_names, 2: Bottle &points, 3: i32 object_num);
+	 Vector localize_superq(1: string &object_names, 2: Bottle &points, 3: i32 object_num);
 
      /**
      * Set the options to remove outliers from point cloud

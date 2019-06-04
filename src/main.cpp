@@ -738,7 +738,7 @@ class Localizer : public RFModule, Localizer_IDL
     }
 
     /****************************************************************/
-    vector<double> localize_superq(const string &object_name, const Bottle &points_bottle, int object_num)
+    Vector localize_superq(const string &object_name, const Bottle &points_bottle, int object_num)
     {
         bool success = point_cloud.fromBottle(points_bottle);
         if (success)
@@ -785,8 +785,10 @@ class Localizer : public RFModule, Localizer_IDL
                 {
                     yError("missing connection to OPC!");
 
-                    vector<double> r_vect(11, 0.0);
-                    return r_vect;
+                    // vector<double> r_vect(11, 0.0);
+                    // return r_vect;
+                    Vector r(11,0.0);
+                    return r;
                 }
 
                 rpcOPC.write(cmd, reply);
@@ -889,29 +891,30 @@ class Localizer : public RFModule, Localizer_IDL
                 vtk_camera->SetViewUp(0.0,0.0,1.0);
 
                 // TEMPORARY FIX
-                vector<double> r_vect;
-                for (size_t i=0; i<r.size(); i++)
-                {
-                    r_vect.push_back(r[i]);
-                }
-
-                return r_vect;
+                // vector<double> r_vect;
+                // for (size_t i=0; i<r.size(); i++)
+                // {
+                //     r_vect.push_back(r[i]);
+                // }
+                //
+                // return r_vect;
+                return r;
             }
             else
             {
                 yError() << "Point cloud size 0!";
 
-                //Vector r(11,0.0);
+                Vector r(11,0.0);
 
-                vector<double> r_vect;
-                for (size_t i=0; i<11; i++)
-                {
-                    r_vect.push_back(0.0);
-                }
+                //vector<double> r_vect;
+                // for (size_t i=0; i<11; i++)
+                // {
+                //     r_vect.push_back(0.0);
+                // }
 
-                return r_vect;
+                //return r_vect;
 
-                //return r;
+                return r;
             }
 
         }
@@ -919,16 +922,16 @@ class Localizer : public RFModule, Localizer_IDL
         {
             yError() << "No point cloud bottle received!";
 
-            vector<double> r_vect;
-            for (size_t i=0; i<11; i++)
-            {
-                r_vect.push_back(0.0);
-            }
+            // vector<double> r_vect;
+            // for (size_t i=0; i<11; i++)
+            // {
+            //     r_vect.push_back(0.0);
+            // }
 
-            return r_vect;
+            //return r_vect;
 
-            //Vector r(11,0.0);
-            //return r;
+            Vector r(11,0.0);
+            return r;
         }
     }
 
