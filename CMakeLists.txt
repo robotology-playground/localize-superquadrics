@@ -1,4 +1,4 @@
-# Copyright (C) 2018 Fondazione Istituto Italiano di Tecnologia (IIT)  
+# Copyright (C) 2018 Fondazione Istituto Italiano di Tecnologia (IIT)
 # All Rights Reserved.
 # Authors: Ugo Pattacini <ugo.pattacini@iit.it>
 
@@ -24,19 +24,22 @@ find_package(YARP 3.0.0 REQUIRED)
 find_package(ICUB REQUIRED)
 list(APPEND CMAKE_MODULE_PATH ${ICUB_MODULE_PATH})
 
+find_package(OpenCV REQUIRED)
+
 find_package(IPOPT REQUIRED)
 find_package(VTK REQUIRED)
 include(${VTK_USE_FILE})
 
 add_definitions(${IPOPT_DEFINITIONS} -D_USE_MATH_DEFINES)
-include_directories(${PROJECT_SOURCE_DIR}/src ${IPOPT_INCLUDE_DIRS})
+include_directories(${PROJECT_SOURCE_DIR}/src ${PROJECT_SOURCE_DIR}/include ${IPOPT_INCLUDE_DIRS})
 
 yarp_add_idl(IDL_GEN_FILES src/idl.thrift)
 source_group("IDL Files" FILES src/idl.thrift)
 
-add_executable(${PROJECT_NAME} src/nlp.h src/nlp.cpp src/main.cpp src/idl.thrift ${IDL_GEN_FILES})
+add_executable(${PROJECT_NAME} include/nlp.h src/nlp.cpp  include/VCGTriMesh.h include/vcg_import_obj_w_stream.h src/main.cpp src/idl.thrift ${IDL_GEN_FILES})
 set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS " ${IPOPT_LINK_FLAGS}")
 
-target_link_libraries(${PROJECT_NAME} ${YARP_LIBRARIES} ${IPOPT_LIBRARIES} ${VTK_LIBRARIES} ctrlLib)
+target_link_libraries(${PROJECT_NAME} ${YARP_LIBRARIES} ${IPOPT_LIBRARIES} ${VTK_LIBRARIES} ${OpenCV_LIBS} ctrlLib)
+target_include_directories(${PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/include/vcglib)
 
 install(TARGETS ${PROJECT_NAME} DESTINATION bin)

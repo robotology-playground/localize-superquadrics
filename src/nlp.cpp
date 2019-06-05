@@ -23,13 +23,52 @@ using namespace yarp::sig;
 using namespace yarp::math;
 
 /****************************************************************/
+vector<int> SuperQuadricNLP::projectPoint(const yarp::sig::Vector &point)
+{
+    Vector pixel_lambda(3,0.0);
+    vector<int> pixel(2);
+
+    pixel_lambda=K*point;
+    pixel[0]=(int)pixel_lambda[0]/pixel_lambda[2];
+    pixel[1]=(int)pixel_lambda[1]/pixel_lambda[2];
+
+    return pixel;
+}
+
+/****************************************************************/
+bool SuperQuadricNLP::insideMask(vector<int> &pixel)
+{
+    cv::Point2f pixel_cv;
+    pixel_cv.x=pixel[0];
+    pixel_cv.y=pixel[1];
+
+    vector<cv::Point> object_contour_cv;
+
+    for (auto i:object_contour)
+    {
+        cv::Point px;
+        px.x=i[0]; px.y=i[1];
+        object_contour_cv.push_back(px);
+        // cout<< " Point contour" << px.x << " " << px.y << endl;
+    }
+
+    double distance = cv::pointPolygonTest(object_contour_cv, pixel_cv, true);
+    // cout<< " Point superq " << pixel_cv.x << " " << pixel_cv.y << endl;
+    // cout << "Distance "<< distance << endl;
+
+    return distance;
+}
+
+/****************************************************************/
 bool SuperQuadricNLP::get_nlp_info(Ipopt::Index &n, Ipopt::Index &m,
                                    Ipopt::Index &nnz_jac_g,
                                    Ipopt::Index &nnz_h_lag,
                                    IndexStyleEnum &index_style)
 {
     n=6;
-    m = nnz_jac_g = nnz_h_lag = 0;
+    m=1;
+    nnz_jac_g=n*m;
+    nnz_h_lag=0;
     index_style=TNLP::C_STYLE;
     return true;
 }
@@ -39,7 +78,6 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
                                       Ipopt::Number *x_u, Ipopt::Index m,
                                       Ipopt::Number *g_l, Ipopt::Number *g_u)
 {
-
     // TODO Check if using information on dimensions could be useful here
     double margin = 2*std::max(object_prop[0],std::max(object_prop[1], object_prop[2]));
 
@@ -52,6 +90,8 @@ bool SuperQuadricNLP::get_bounds_info(Ipopt::Index n, Ipopt::Number *x_l,
     x_l[3]=-numeric_limits<double>::infinity(); x_u[3]=numeric_limits<double>::infinity();
     x_l[4]=-numeric_limits<double>::infinity(); x_u[4]=numeric_limits<double>::infinity();
     x_l[5]=-numeric_limits<double>::infinity(); x_u[5]=numeric_limits<double>::infinity();
+
+    g_l[0]=g_u[0]=0.0;
 
     return true;
 }
@@ -66,14 +106,12 @@ bool SuperQuadricNLP::get_starting_point(Ipopt::Index n, bool init_x,
     x[0]=centroid[0];
     x[1]=centroid[1];
     x[2]=centroid[2];
-
     // x[3]=0.0;
     // x[4]=0.0;
     // x[5]=0.0;
     x[3]=initial_angles[0];
     x[4]=initial_angles[1];
     x[5]=initial_angles[2];
-
     return true;
 }
 
@@ -103,7 +141,124 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
     T.setSubcol(c,0,3);
     T=SE3inv(T);
 
-    obj_value=0.0;
+    Vector p1(4,1.0);
+    double distance=0.0;
+
+    for (auto p: points_superq)
+    {
+        p1.setSubvector(0,p);
+        p1=T*p1;
+        vector<int> pixel=projectPoint(p1);
+        if (insideMask(pixel)>0)
+            distance+=insideMask(pixel);
+    }
+
+    obj_value = distance/points.size();
+
+    //cout<<"Object pose " << x[0] << " " << x[1] << " "<< x[2] << " "<<x[3] << " "<<x[4] << " "<<x[5] << endl;
+
+    //cout<< "Object value " << obj_value << endl;
+    return true;
+}
+
+/****************************************************************/
+double SuperQuadricNLP::F_v(Vector &x)
+{
+    Vector c(3),s(3);
+    c[0]=x[0];
+    c[1]=x[1];
+    c[2]=x[2];
+    const double &r=x[3];
+    const double &p=x[4];
+    const double &y=x[5];
+    s[0]=object_prop[0];
+    s[1]=object_prop[1];
+    s[2]=object_prop[2];
+    const double &e1=object_prop[3];
+    const double &e2=object_prop[4];
+
+    Vector angles(3,0.0);
+    angles[0] = r;
+    angles[1] = p;
+    angles[2] = y;
+
+    Matrix T=rpy2dcm(angles);
+    T.setSubcol(c,0,3);
+    T=SE3inv(T);
+
+    Vector p1(4,1.0);
+    double distance=0.0;
+
+    for (auto p: points_superq)
+    {
+        p1.setSubvector(0,p);
+        p1=T*p1;
+        vector<int> pixel=projectPoint(p1);
+        if (insideMask(pixel)>0)
+            distance+=insideMask(pixel);
+    }
+
+    return distance/points.size();
+}
+
+/****************************************************************/
+bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
+                                  bool new_x, Ipopt::Number *grad_f)
+{
+     Vector x_tmp(n,0.0);
+     double grad_p, grad_n;
+     double eps = 1e-4;
+
+     for(Ipopt::Index i = 0;i < n; i++)
+        x_tmp(i) = x[i];
+
+     for(Ipopt::Index j = 0;j < n; j++)
+     {
+         x_tmp(j) += eps;
+         grad_p = F_v(x_tmp);
+
+         cout<< "Gradient value " << grad_p << endl;
+
+         x_tmp(j) -= eps;
+         grad_n = F_v(x_tmp);
+
+         cout<< "Gradient value " << grad_n << endl;
+
+         grad_f[j] = (grad_p-grad_n)/eps;
+     }
+
+     cout<< "Gradient value " << grad_f[0] << endl;
+
+    return true;
+}
+
+/****************************************************************/
+bool SuperQuadricNLP::eval_g(Ipopt::Index n, const Ipopt::Number *x,
+                             bool new_x, Ipopt::Index m, Ipopt::Number *g)
+{
+    Vector c(3),s(3);
+    c[0]=x[0];
+    c[1]=x[1];
+    c[2]=x[2];
+    const double &r=x[3];
+    const double &p=x[4];
+    const double &y=x[5];
+    s[0]=object_prop[0];
+    s[1]=object_prop[1];
+    s[2]=object_prop[2];
+    const double &e1=object_prop[3];
+    const double &e2=object_prop[4];
+
+    Vector angles(3,0.0);
+    angles[0] = r;
+    angles[1] = p;
+    angles[2] = y;
+
+    Matrix T=rpy2dcm(angles);
+    T.setSubcol(c,0,3);
+    T=SE3inv(T);
+
+    double obj_value=0.0;
     Vector p1(4,1.0);
 
     for (auto &p:points)
@@ -117,223 +272,53 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
         obj_value += F1 * F1;
     }
 
-    obj_value*=(s[0]*s[1]*s[2])/points.size();
+    g[0]=obj_value*(s[0]*s[1]*s[2])/points.size();
 
     return true;
 }
 
 /****************************************************************/
-bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
-                                  bool new_x, Ipopt::Number *grad_f)
+double SuperQuadricNLP::G_v(Vector &x)
 {
-    Vector s(3);
+    Vector c(3),s(3);
+    c[0]=x[0];
+    c[1]=x[1];
+    c[2]=x[2];
+    const double &r=x[3];
+    const double &p=x[4];
+    const double &y=x[5];
     s[0]=object_prop[0];
     s[1]=object_prop[1];
     s[2]=object_prop[2];
     const double &e1=object_prop[3];
     const double &e2=object_prop[4];
 
-    for (Ipopt::Index i=0; i<n; i++)
-        grad_f[i]=0.0;
+    Vector angles(3,0.0);
+    angles[0] = r;
+    angles[1] = p;
+    angles[2] = y;
 
-    if (analytic)
+    Matrix T=rpy2dcm(angles);
+    T.setSubcol(c,0,3);
+    T=SE3inv(T);
+
+    double obj_value=0.0;
+    Vector p1(4,1.0);
+
+    for (auto &p:points)
     {
-        Vector c(3);
-        c[0]=x[0];
-        c[1]=x[1];
-        c[2]=x[2];
-        const double &r=x[3];
-        const double &p=x[4];
-        const double &y=x[5];
-
-        double cr = cos(r);
-        double cp = cos(p);
-        double cy = cos(y);
-        double sr = sin(r);
-        double sp = sin(p);
-        double sy = sin(y);
-
-        Matrix Rx(3,3);
-        Rx[0][0] = 1;
-        Rx[1][1] = cr;
-        Rx[2][2] = cr;
-        Rx[1][2] = -sr;
-        Rx[2][1] = sr;
-        Matrix Ry(3,3);
-        Ry[1][1] = 1;
-        Ry[0][0] = cp;
-        Ry[2][2] = cp;
-        Ry[0][2] = sp;
-        Ry[2][0] = -sp;
-        Matrix Rz(3,3);
-        Rz[2][2] = 1;
-        Rz[0][0] = cy;
-        Rz[1][1] = cy;
-        Rz[0][1] = -sy;
-        Rz[1][0] = sy;
-
-        Matrix dRx(3,3);
-        dRx[1][1] = -sr;
-        dRx[2][2] = -sr;
-        dRx[1][2] = -cr;
-        dRx[2][1] = cr;
-        Matrix dRy(3,3);
-        dRy[0][0] = -sp;
-        dRy[2][2] = -sp;
-        dRy[0][2] = cp;
-        dRy[2][0] = -cp;
-        Matrix dRz(3,3);
-        dRz[0][0] = -sy;
-        dRz[1][1] = -sy;
-        dRz[0][1] = -cy;
-        dRz[1][0] = cy;
-
-        Matrix R = Rz*Ry*Rx;
-        Matrix invR = R.transposed();
-
-        Matrix dX_dT = -1.0 * invR;
-        Matrix dX_dO_r = dRx.transposed() * Ry.transposed() * Rz.transposed();
-        Matrix dX_dO_p = Rx.transposed() * dRy.transposed() * Rz.transposed();
-        Matrix dX_dO_y = Rx.transposed() * Ry.transposed() * dRz.transposed();
-
-        Vector invT = -1.0 * invR * c;
-
-        for (auto &p:points)
-        {
-            Vector X = invR*p+invT;
-
-            double tx = pow( fabs( X[0]/s[0] ), 2.0/e2);
-            double ty = pow( fabs( X[1]/s[1] ), 2.0/e2);
-            double tz = pow( fabs( X[2]/s[2] ), 2.0/e1);
-
-            double tmp_1 = pow(tx+ty, e2/e1) + tz;
-            double F1 = pow(tmp_1, e1) - 1.0;
-
-            double tmp_2 = pow(tmp_1, e1-1.0);
-            double tmp_3 = pow(tx+ty, e2/e1-1.0);
-
-            double dF_dX0 = 2 * tmp_2 * tmp_3 * sign(X[0]) * pow(fabs(X[0]/s[0]), 2.0/e2-1.0) / s[0];
-            double dF_dX1 = 2 * tmp_2 * tmp_3 * sign(X[1]) * pow(fabs(X[1]/s[1]), 2.0/e2-1.0) / s[1];
-            double dF_dX2 = 2 * tmp_2 * sign(X[2]) * pow(fabs(X[2]/s[2]), 2.0/e1-1.0) / s[2];
-
-            grad_f[0] += F1 * (dF_dX0 * dX_dT[0][0] + dF_dX1 * dX_dT[1][0] + dF_dX2 * dX_dT[2][0]);
-            grad_f[1] += F1 * (dF_dX0 * dX_dT[0][1] + dF_dX1 * dX_dT[1][1] + dF_dX2 * dX_dT[2][1]);
-            grad_f[2] += F1 * (dF_dX0 * dX_dT[0][2] + dF_dX1 * dX_dT[1][2] + dF_dX2 * dX_dT[2][2]);
-
-            double p0 = p[0] - c[0];
-            double p1 = p[1] - c[1];
-            double p2 = p[2] - c[2];
-
-            double dX_dO[3][3];
-            dX_dO[0][0] = dX_dO_r[0][0] * p0 + dX_dO_r[0][1] * p1 + dX_dO_r[0][2] * p2;
-            dX_dO[1][0] = dX_dO_r[1][0] * p0 + dX_dO_r[1][1] * p1 + dX_dO_r[1][2] * p2;
-            dX_dO[2][0] = dX_dO_r[2][0] * p0 + dX_dO_r[2][1] * p1 + dX_dO_r[2][2] * p2;
-            dX_dO[0][1] = dX_dO_p[0][0] * p0 + dX_dO_p[0][1] * p1 + dX_dO_p[0][2] * p2;
-            dX_dO[1][1] = dX_dO_p[1][0] * p0 + dX_dO_p[1][1] * p1 + dX_dO_p[1][2] * p2;
-            dX_dO[2][1] = dX_dO_p[2][0] * p0 + dX_dO_p[2][1] * p1 + dX_dO_p[2][2] * p2;
-            dX_dO[0][2] = dX_dO_y[0][0] * p0 + dX_dO_y[0][1] * p1 + dX_dO_y[0][2] * p2;
-            dX_dO[1][2] = dX_dO_y[1][0] * p0 + dX_dO_y[1][1] * p1 + dX_dO_y[1][2] * p2;
-            dX_dO[2][2] = dX_dO_y[2][0] * p0 + dX_dO_y[2][1] * p1 + dX_dO_y[2][2] * p2;
-
-            grad_f[3] += F1 * (dF_dX0 * dX_dO[0][0] + dF_dX1 * dX_dO[1][0] + dF_dX2 * dX_dO[2][0]);
-            grad_f[4] += F1 * (dF_dX0 * dX_dO[0][1] + dF_dX1 * dX_dO[1][1] + dF_dX2 * dX_dO[2][1]);
-            grad_f[5] += F1 * (dF_dX0 * dX_dO[0][2] + dF_dX1 * dX_dO[1][2] + dF_dX2 * dX_dO[2][2]);
-        }
-
-        double coeff = 2.0 * s[0] * s[1] * s[2] / points.size();
-        for (Ipopt::Index i=0; i<n; i++)
-            grad_f[i] *= coeff;
-
-        return true;
-    }
-    else
-    {
-         Vector x_tmp(n, 0.0);
-         double grad_p, grad_n;
-         double eps = 1e-8;
-
-         for (Ipopt::Index j = 0; j < n; j++)
-             x_tmp[j] = x[j];
-
-         for (Ipopt::Index j = 0; j < n; j++)
-         {
-             x_tmp[j] = x[j] + eps;
-
-             Vector c(3);
-             c[0]=x_tmp[0];
-             c[1]=x_tmp[1];
-             c[2]=x_tmp[2];
-             double r=x_tmp[3];
-             double p=x_tmp[4];
-             double y=x_tmp[5];
-
-             Vector angles(3,0.0);
-             angles[0] = r;
-             angles[1] = p;
-             angles[2] = y;
-
-             Matrix T=rpy2dcm(angles);
-             T.setSubcol(c,0,3);
-             T=SE3inv(T);
-
-             double obj_value=0.0;
-             Vector p1(4,1.0);
-             for (auto &p:points)
-             {
-                 p1.setSubvector(0,p);
-                 p1=T*p1;
-                 double tx=pow(abs( p1[0]/s[0]), 2.0/e2);
-                 double ty=pow(abs( p1[1]/s[1]), 2.0/e2);
-                 double tz=pow(abs( p1[2]/s[2]), 2.0/e1);
-                 double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
-                 obj_value += F1 * F1;
-             }
-
-             grad_p = s[0]*s[1]*s[2] * obj_value/points.size();
-
-             x_tmp[j] = x[j] - eps;
-
-             c[0]=x_tmp[0];
-             c[1]=x_tmp[1];
-             c[2]=x_tmp[2];
-             r=x_tmp[3];
-             p=x_tmp[4];
-             y=x_tmp[5];
-
-             angles[0] = r;
-             angles[1] = p;
-             angles[2] = y;
-
-             T=rpy2dcm(angles);
-             T.setSubcol(c,0,3);
-             T=SE3inv(T);
-
-             obj_value=0.0;
-             for (auto &p:points)
-             {
-                 p1.setSubvector(0,p);
-                 p1=T*p1;
-                 double tx=pow(abs( p1[0]/s[0]), 2.0/e2);
-                 double ty=pow(abs( p1[1]/s[1]), 2.0/e2);
-                 double tz=pow(abs( p1[2]/s[2]), 2.0/e1);
-                 double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
-                 obj_value += F1 * F1;
-             }
-             grad_n = s[0]*s[1]*s[2] * obj_value/points.size();
-
-             grad_f[j] = (grad_p-grad_n)/(2*eps);
-         }
-
-         return true;
+        p1.setSubvector(0,p);
+        p1=T*p1;
+        double tx=pow(abs( p1[0]/s[0]), 2.0/e2);
+        double ty=pow(abs( p1[1]/s[1]), 2.0/e2);
+        double tz=pow(abs( p1[2]/s[2]), 2.0/e1);
+        double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
+        obj_value += F1 * F1;
     }
 
-}
+     //cout<< "Constraint value " << obj_value*(s[0]*s[1]*s[2])/points.size() << endl;
 
-/****************************************************************/
-bool SuperQuadricNLP::eval_g(Ipopt::Index n, const Ipopt::Number *x,
-                             bool new_x, Ipopt::Index m, Ipopt::Number *g)
-{
-    return true;
+    return obj_value*(s[0]*s[1]*s[2])/points.size();
 }
 
 /****************************************************************/
@@ -342,7 +327,44 @@ bool SuperQuadricNLP::eval_jac_g(Ipopt::Index n, const Ipopt::Number *x,
                                  Ipopt::Index *iRow, Ipopt::Index *jCol,
                                  Ipopt::Number *values)
 {
-    return true;
+     double grad_p, grad_n;
+     double eps = 1e-6;
+     Vector x_tmp(6,0.0);
+
+     if(values != NULL)
+     {
+         for(Ipopt::Index i = 0;i < n; i++)
+            x_tmp(i) = x[i];
+
+         int count = 0;
+         for(Ipopt::Index i = 0;i < m; i++)
+         {
+             for(Ipopt::Index j = 0;j < n; j++)
+             {
+                 x_tmp(j) = x_tmp(j) + eps;
+                 grad_p = G_v(x_tmp);
+
+                 x_tmp(j) = x_tmp(j)-eps;
+                 grad_n = G_v(x_tmp);
+
+                 values[count] = (grad_p-grad_n)/(eps);
+                 count++;
+             }
+         }
+     }
+     else
+     {
+        for (int j = 0; j < m; j++)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                jCol[j*(n) + i] = i;
+                iRow[j*(n)+ i] = j;
+            }
+        }
+     }
+
+     return true;
 }
 
 /****************************************************************/
@@ -381,9 +403,14 @@ void SuperQuadricNLP::finalize_solution(Ipopt::SolverReturn status,
 
 /****************************************************************/
 SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
+                                 const vector<Vector> &points_superq_,
+                                 const vector<vector<int>> &object_contour_,
                                  const Vector &object_prop_,
+                                 const Matrix &K_,
                                  bool analytic_) :
-                                 points(points_), object_prop(object_prop_),
+                                 points(points_), points_superq(points_superq_),
+                                 object_contour(object_contour_),
+                                 object_prop(object_prop_), K(K_),
                                  analytic(analytic_)
 {
     bounds.resize(3,2);
@@ -456,6 +483,7 @@ SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
 
     initial_angles.resize(3,0.0);
     initial_angles = dcm2rpy(R);
+
 }
 
 /****************************************************************/

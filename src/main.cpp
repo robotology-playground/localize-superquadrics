@@ -28,6 +28,11 @@
 
 #include <iCub/ctrl/clustering.h>
 
+#include <VCGTriMesh.h>
+
+#include <vtkFitImplicitFunction.h>
+#include <vtkBoundedPointSource.h>
+
 #include <vtkSmartPointer.h>
 #include <vtkCommand.h>
 #include <vtkProperty.h>
@@ -299,9 +304,15 @@ class Localizer : public RFModule, Localizer_IDL
     // This rpc to communicate with OPC
     RpcClient rpcOPC;
 
+    vector<Vector> points_superq;
+    vector<vector<int>> object_contour;
+    yarp::sig::Matrix K;
+
     vector<Vector> all_points,in_points,out_points,dwn_points;
     vector<vector<unsigned char>> all_colors;
 
+    unique_ptr<Points> vtk_points_superq;
+    unique_ptr<Points> vtk_points_contour;
     vector<unique_ptr<Points>> vtk_all_points,vtk_out_points,vtk_dwn_points;
     vector<unique_ptr<Superquadric>> vtk_superquadrics;
 
@@ -399,7 +410,8 @@ class Localizer : public RFModule, Localizer_IDL
     Vector localizeSuperquadric() const
     {
         Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
-        app->Options()->SetNumericValue("tol",1e-6);
+        app->Options()->SetNumericValue("tol",1e-3);
+        app->Options()->SetNumericValue("constr_viol_tol",1e-3);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
         app->Options()->SetStringValue("nlp_scaling_method","gradient-based");
@@ -411,16 +423,148 @@ class Localizer : public RFModule, Localizer_IDL
         app->Initialize();
 
         double t0=Time::now();
-        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points, object_prop, analytic_gradient);
+        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points, points_superq, object_contour, object_prop, K, analytic_gradient);
         Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
         double t1=Time::now();
+
 
         Vector r=nlp->get_result();
         yInfo()<<"center   = ("<<r.subVector(0,2).toString(3,3)<<")";
         yInfo()<<"orientation    ="<<r.subVector(3,5).toString(3,3)<<"[deg]";
         yInfo()<<"found in ="<<t1-t0<<"[s]";
 
+
         return r;
+    }
+
+    /****************************************************************/
+    vector<Vector> sampleSuperq()
+    {
+        vector<Vector> sampled_points;
+
+        //TODO: TEST
+        vtkSmartPointer<vtkSuperquadric> superquadric = vtkSmartPointer<vtkSuperquadric>::New();
+        superquadric->ToroidalOff();
+
+        // This is not a typo, 6-8-7 is the correct sequence
+        superquadric->SetPhiRoundness(object_prop[3]);
+        superquadric->SetThetaRoundness(object_prop[4]);
+        superquadric->SetScale(object_prop[0], object_prop[2], object_prop[1]);
+
+        vtkMath::RandomSeed(1);
+        vtkSmartPointer<vtkBoundedPointSource> samples = vtkSmartPointer<vtkBoundedPointSource>::New();
+        samples->SetNumberOfPoints(10000000);
+        double superq_scales[3];
+        superquadric->GetScale(superq_scales);
+        double scale_multiplier = 1.0 / superquadric->GetSize();
+        superquadric->SetSize(1.0);
+        double bound_x = (superq_scales[0] * scale_multiplier * 1.1) / 2.0;
+        double bound_y = (superq_scales[1] * scale_multiplier * 1.1) / 2.0;
+        double bound_z = (superq_scales[2] * scale_multiplier * 1.1) / 2.0;
+        samples->SetBounds(-bound_x, bound_x, -bound_y, bound_y, -bound_z, bound_z);
+
+        // Find samples almost on the surface of the superquadric
+        vtkSmartPointer<vtkFitImplicitFunction> fit = vtkSmartPointer<vtkFitImplicitFunction>::New();
+        fit->SetInputConnection(samples->GetOutputPort());
+        fit->SetImplicitFunction(superquadric);
+        fit->SetThreshold(0.01);
+        fit->Update();
+
+        // Rotate points since the VTK superquadrics uses swapped y/z axes
+        auto vtk_points=fit->GetOutput();
+        for (std::size_t i=0; i<vtk_points->GetNumberOfPoints(); i++)
+        {
+            double* ptr=vtk_points->GetPoint(i);
+            Vector p_sampled(3);
+            p_sampled[0]=ptr[0]; p_sampled[1]= ptr[1]; p_sampled[2]= ptr[2];
+            Vector axis_angle(4,0.0);
+            axis_angle[0]=1.0;
+            axis_angle[3]=- M_PI / 2.0;
+            Matrix R=axis2dcm(axis_angle);
+            sampled_points.push_back(R.submatrix(0,2,0,2)*p_sampled);
+        }
+
+        std::cout << "::sample. Superquadric sampled succesfully." << std::endl;
+
+        // Copy points into mesh vertices
+       simpleTriMesh vcg_sampled_points;
+       VertexIterator vi = simpleTriMeshAllocator::AddVertices(vcg_sampled_points, sampled_points.size());
+       for (std::size_t i = 0; i < sampled_points.size(); i++)
+       {
+           Vector sampled_p=sampled_points[i];
+           (*vi).P()[0] = sampled_p(0);
+           (*vi).P()[1] = sampled_p(1);
+           (*vi).P()[2] = sampled_p(2);
+           vi++;
+       }
+
+       // Perform bounding box computation
+       vcg::tri::UpdateBounding<simpleTriMesh>::Box(vcg_sampled_points);
+
+       // Some default parametrs as found in MeshLab
+       // std::size_t oversampling = 20;
+       triMeshSurfSampler::PoissonDiskParam poiss_params;
+       poiss_params.radiusVariance = 1;
+       poiss_params.geodesicDistanceFlag = false;
+       poiss_params.bestSampleChoiceFlag = true;
+       poiss_params.bestSamplePoolSize = 10;
+
+       // Estimate radius required to obtain disk poisson sampling with the number_of_points points
+       simpleTriMesh::ScalarType radius;
+       radius = triMeshSurfSampler::ComputePoissonDiskRadius(vcg_sampled_points, sampled_points.size());
+
+       // Generate disk poisson samples by pruning the existing samples
+       simpleTriMesh poiss_mesh;
+       triMeshSampler dp_sampler(poiss_mesh);
+       triMeshSurfSampler::PoissonDiskPruningByNumber(dp_sampler, vcg_sampled_points, sampled_points.size(), radius, poiss_params, 0.005);
+       vcg::tri::UpdateBounding<simpleTriMesh>::Box(poiss_mesh);
+
+       std::cout << "::sample. Samples decimated using PoissonDisk sampling." << std::endl;
+
+       // Store the cloud
+       std::size_t number_points = std::distance(poiss_mesh.vert.begin(), poiss_mesh.vert.end());
+       vector<Vector> poisson_cloud;
+       std::size_t i = 0;
+       for (VertexIterator vi = poiss_mesh.vert.begin(); vi != poiss_mesh.vert.end(); vi++)
+       {
+           // Extract the point
+           const auto p = vi->cP();
+
+           // Add to the cloud
+           Vector point(3);
+           point[0] = p[0]/(superq_scales[0]*2); point[1] = p[1]/(superq_scales[1]*2); point[2] = p[2]/(superq_scales[2]*2);
+           poisson_cloud.push_back(point);
+           i++;
+        }
+
+        yDebug() << "Number of points on superq "<<i;
+        return poisson_cloud;
+    }
+
+    /****************************************************************/
+    vector<vector<int>> projectPointCloud(vector<Vector> &points)
+    {
+        vector<vector<int>> contour;
+
+        //TODO
+        for (auto point:points)
+        {
+            Vector pixel_lambda(3,0.0);
+            vector<int> pixel(2);
+
+            Vector point_ext(4,1.0);
+            point_ext.setSubvector(0,point);
+
+            yDebug() << point_ext.toString();
+
+            pixel_lambda=K*point_ext;
+            yDebug() << pixel_lambda.toString();
+            pixel[0]=(int)pixel_lambda[0]/pixel_lambda[2];
+            pixel[1]=(int)pixel_lambda[1]/pixel_lambda[2];
+            contour.push_back(pixel);
+        }
+
+        return contour;
     }
 
     /****************************************************************/
@@ -432,13 +576,25 @@ class Localizer : public RFModule, Localizer_IDL
 
         num_vis = 5;
 
+        K.resize(4,4);
+        K.zero();
+
+        K(0,0) = 257.34;
+        K(1,1) = 257.34;
+        K(0,2) = 160;
+        K(1,2) = 120;
+        K(2,2) = 1;
+
         from_file=rf.check("file");
         if (from_file)
         {
             string file=rf.find("file").asString();
+            string file_contour=rf.find("file_contour").asString();
             Bottle *list=rf.find("object_prop").asList();
+
             if(list)
             {
+
                 if(list->size() == 5)
                 {
                     for(int i = 0; i < 5; i++) object_prop[i] = list->get(i).asDouble();
@@ -449,6 +605,8 @@ class Localizer : public RFModule, Localizer_IDL
                     return false;
                 }
             }
+
+            points_superq=sampleSuperq();
 
             ifstream fin(file.c_str());
             if (!fin.is_open())
@@ -476,6 +634,38 @@ class Localizer : public RFModule, Localizer_IDL
                 c[2]=(unsigned char)c_[2];
                 all_colors.push_back(c);
             }
+
+            ifstream fin_contour(file_contour.c_str());
+            if (!fin_contour.is_open())
+            {
+                yError()<<"Unable to open file \""<<file<<"\"";
+                return false;
+            }
+
+            Vector p_c(3);
+            string line_c;
+
+            vector<Vector> points_contour;
+
+            yDebug() << "Object contour 3D ";
+            while (getline(fin_contour,line_c))
+            {
+                istringstream iss(line_c);
+                if (!(iss>>p_c[0]>>p_c[1]>>p_c[2]))
+                    break;
+                points_contour.push_back(p_c);
+
+                yDebug() << p_c.toString();
+            }
+
+            object_contour=projectPointCloud(points_contour);
+
+            yDebug() << "Object contour 2D ";
+            for (auto oc:object_contour)
+            {
+                yDebug() << oc[0] << oc[1];
+            }
+
         }
         else
         {
@@ -565,6 +755,34 @@ class Localizer : public RFModule, Localizer_IDL
         vtk_renderWindow->AddRenderer(vtk_renderer);
         vtk_renderWindowInteractor=vtkSmartPointer<vtkRenderWindowInteractor>::New();
         vtk_renderWindowInteractor->SetRenderWindow(vtk_renderWindow);
+
+        // Visualize projection of object mask
+        if (rf.check("show_object_contour"))
+        {
+            vector<Vector> object_contour_vtk;
+            for (auto o:object_contour)
+            {
+                Vector of(3,0.0);
+                of[0]=o[0];
+                of[1]=o[1];
+                object_contour_vtk.push_back(of);
+            }
+            vtk_points_contour = unique_ptr<Points>(new Points(object_contour_vtk,20));
+
+            vtk_points_contour->get_actor()->GetProperty()->SetColor(0.0,0.0,1.0);
+
+            vtk_renderer->AddActor(vtk_points_contour->get_actor());
+        }
+
+        // Visualize sampled superquadric
+        if (rf.check("show_sampled_superq"))
+        {
+            vtk_points_superq = unique_ptr<Points>(new Points(points_superq,2));
+
+            vtk_points_superq->get_actor()->GetProperty()->SetColor(0.0,1.0,0.0);
+
+            vtk_renderer->AddActor(vtk_points_superq->get_actor());
+        }
 
         for (int i = 0; i < num_vis; i++)
         {
