@@ -658,58 +658,45 @@ class Localizer : public RFModule, Localizer_IDL
                 yDebug() << p_c.toString();
             }
 
-            for (double a=points_contour[1][0]; a < points_contour[0][0]; a+= abs(points_contour[1][0] - points_contour[0][0])/1000 )
+            for (double a=abs(points_contour[1][0] - points_contour[0][0])/100; a < 1; a+= abs(points_contour[1][0] - points_contour[0][0])/100)
             {
                 Vector x(3,0.0);
                 Vector dx(3,0.0);
                 dx[0] = a;
+
                 x=points_contour[1] + dx;
-                //yDebug()<<"1 " << x.toString();
                 points_contour.push_back(x);
             }
 
-            yDebug() << "a " << points_contour[1][1] << "limit "<< points_contour[2][1];
+            for (double a=abs(points_contour[3][1] - points_contour[1][1])/100; a < 1; a+= abs(points_contour[3][1] - points_contour[1][1])/100 )
+            {
+                Vector x(3,0.0);
+                Vector dx(3,0.0);
+                dx[1] = a;
+                x=points_contour[3] + dx;
+                points_contour.push_back(x);
+            }
 
-            // for (double a=points_contour[1][0]; a < points_contour[2][0]; a+= abs(points_contour[2][1] - points_contour[1][1])/1000 )
-            // {
-            //     Vector x(3,0.0);
-            //     Vector dx(3,0.0);
-            //     dx[0] = a;
-            //     dx[1] = a;
-            //     x=points_contour[1] + dx;
-            //     yDebug()<<"2 " << x.toString();
-            //     points_contour.push_back(x);
-            // }
-
-            for (double a=points_contour[3][0]; a < points_contour[2][0]; a+= abs(points_contour[3][0] - points_contour[2][0])/1000 )
+            for (double a=abs(points_contour[3][0] - points_contour[2][0])/100; a < 1; a+= abs(points_contour[3][0] - points_contour[2][0])/100)
             {
                 Vector x(3,0.0);
                 Vector dx(3,0.0);
                 dx[0] = a;
+
                 x=points_contour[3] + dx;
-                yDebug()<<"3 " << x.toString();
                 points_contour.push_back(x);
             }
 
-            // for (double a=points_contour[3][1]; a < points_contour[0][1]; a+= abs(points_contour[0][1] - points_contour[3][1])/1000 )
-            // {
-            //     Vector x(3,0.0);
-            //     Vector dx(3,0.0);
-            //     dx[0] = a;
-            //     dx[1] = a;
-            //     x=points_contour[3] + dx;
-            //     yDebug()<<"4 " << x.toString();
-            //     points_contour.push_back(x);
-            // }
+            for (double a=abs(points_contour[0][1] - points_contour[2][1])/100; a < 1; a+= abs(points_contour[0][1] - points_contour[2][1])/100 )
+            {
+                Vector x(3,0.0);
+                Vector dx(3,0.0);
+                dx[1] = a;
+                x=points_contour[2] + dx;
+                points_contour.push_back(x);
+            }
 
             object_contour=projectPointCloud(points_contour);
-
-            // yDebug() << "Object contour 2D ";
-            // for (auto oc:object_contour)
-            // {
-            //     yDebug() << oc[0] << oc[1];
-            // }
-
         }
         else
         {
@@ -761,7 +748,7 @@ class Localizer : public RFModule, Localizer_IDL
         Vector r(11,0.0);
         if (dwn_points.size()>0)
         {
-            //r=localizeSuperquadric();
+            r=localizeSuperquadric();
 
             if (rf.check("real-pose"))
             {
