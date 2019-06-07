@@ -149,8 +149,8 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
         p1.setSubvector(0,p);
         p1=T*p1;
         vector<int> pixel=projectPoint(p1);
-        if (insideMask(pixel)>0)
-            distance+=insideMask(pixel);
+        //if (insideMask(pixel)>0)
+        distance+=insideMask(pixel);
     }
 
     obj_value = distance/points.size();
@@ -194,8 +194,8 @@ double SuperQuadricNLP::F_v(Vector &x)
         p1.setSubvector(0,p);
         p1=T*p1;
         vector<int> pixel=projectPoint(p1);
-        if (insideMask(pixel)>0)
-            distance+=insideMask(pixel);
+        //if (insideMask(pixel)>0)
+        distance+=insideMask(pixel);
     }
 
     return distance/points.size();
@@ -217,17 +217,12 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
          x_tmp(j) += eps;
          grad_p = F_v(x_tmp);
 
-         cout<< "Gradient value " << grad_p << endl;
-
          x_tmp(j) -= eps;
          grad_n = F_v(x_tmp);
 
-         cout<< "Gradient value " << grad_n << endl;
-
          grad_f[j] = (grad_p-grad_n)/eps;
+         cout<< "Gradient value " << grad_f[j] << endl;
      }
-
-     cout<< "Gradient value " << grad_f[0] << endl;
 
     return true;
 }

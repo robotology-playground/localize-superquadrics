@@ -410,8 +410,8 @@ class Localizer : public RFModule, Localizer_IDL
     Vector localizeSuperquadric() const
     {
         Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
-        app->Options()->SetNumericValue("tol",1e-3);
-        app->Options()->SetNumericValue("constr_viol_tol",1e-3);
+        app->Options()->SetNumericValue("tol",1e-8);
+        app->Options()->SetNumericValue("constr_viol_tol",1e-8);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
         app->Options()->SetStringValue("nlp_scaling_method","gradient-based");
