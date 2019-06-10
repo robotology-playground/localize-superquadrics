@@ -29,7 +29,7 @@ class SuperQuadricNLP : public Ipopt::TNLP
 protected:
     const std::vector<yarp::sig::Vector> &points;
     const std::vector<yarp::sig::Vector> &points_superq;
-    const std::vector<std::vector<int>> &object_contour;
+    const std::vector<yarp::sig::Vector> &object_contour;
     bool analytic;
 
     yarp::sig::Vector centroid;
@@ -38,13 +38,13 @@ protected:
     yarp::sig::Vector result;
     yarp::sig::Vector object_prop;
 
-    yarp::sig::Matrix K;
+    yarp::sig::Matrix K, T;
 
     /****************************************************************/
-    std::vector<int> projectPoint(const yarp::sig::Vector &point);
+    yarp::sig::Vector projectPoint(const yarp::sig::Vector &point);
 
     /****************************************************************/
-    bool insideMask(std::vector<int> &pixel);
+    double insideMask(yarp::sig::Vector &pixel);
 
     /****************************************************************/
     bool get_nlp_info(Ipopt::Index &n, Ipopt::Index &m, Ipopt::Index &nnz_jac_g,
@@ -100,9 +100,10 @@ public:
     /****************************************************************/
     SuperQuadricNLP(const std::vector<yarp::sig::Vector> &points_,
                                      const std::vector<yarp::sig::Vector> &points_superq_,
-                                     const std::vector<std::vector<int>> &object_contour_,
+                                     const std::vector<yarp::sig::Vector> &object_contour_,
                                      const yarp::sig::Vector &object_prop_,
                                      const yarp::sig::Matrix &K,
+                                     const yarp::sig::Matrix &T,
                                      bool analytic_);
 
     /****************************************************************/

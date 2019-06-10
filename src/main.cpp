@@ -212,6 +212,8 @@ public:
         double by=r[8];
         double bz=r[7];
 
+        yDebug() << "Superquadric estimated " << r.toString() ;
+
         vtk_superquadric=vtkSmartPointer<vtkSuperquadric>::New();
         vtk_superquadric->ToroidalOff();
         vtk_superquadric->SetSize(1.0);
@@ -305,13 +307,14 @@ class Localizer : public RFModule, Localizer_IDL
     RpcClient rpcOPC;
 
     vector<Vector> points_superq;
-    vector<vector<int>> object_contour;
-    yarp::sig::Matrix K;
+    vector<Vector> object_contour;
+    yarp::sig::Matrix K, T;
 
     vector<Vector> all_points,in_points,out_points,dwn_points;
     vector<vector<unsigned char>> all_colors;
 
     unique_ptr<Points> vtk_points_superq;
+    unique_ptr<Points> vtk_points_superq_2d;
     unique_ptr<Points> vtk_points_contour;
     vector<unique_ptr<Points>> vtk_all_points,vtk_out_points,vtk_dwn_points;
     vector<unique_ptr<Superquadric>> vtk_superquadrics;
@@ -410,12 +413,12 @@ class Localizer : public RFModule, Localizer_IDL
     Vector localizeSuperquadric() const
     {
         Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
-        app->Options()->SetNumericValue("tol",1e-8);
-        app->Options()->SetNumericValue("constr_viol_tol",1e-8);
+        app->Options()->SetNumericValue("tol",1e-3);
+        app->Options()->SetNumericValue("constr_viol_tol",1e-4);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
         app->Options()->SetStringValue("nlp_scaling_method","gradient-based");
-        app->Options()->SetIntegerValue("max_iter", 1000);
+        app->Options()->SetIntegerValue("max_iter", 300);
         app->Options()->SetStringValue("hessian_approximation","limited-memory");
         app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
         app->Options()->SetIntegerValue("print_level",test_derivative?5:0);
@@ -423,7 +426,7 @@ class Localizer : public RFModule, Localizer_IDL
         app->Initialize();
 
         double t0=Time::now();
-        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points, points_superq, object_contour, object_prop, K, analytic_gradient);
+        Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points, points_superq, object_contour, object_prop, K, T, analytic_gradient);
         Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
         double t1=Time::now();
 
@@ -484,7 +487,7 @@ class Localizer : public RFModule, Localizer_IDL
             sampled_points.push_back(R.submatrix(0,2,0,2)*p_sampled);
         }
 
-        std::cout << "::sample. Superquadric sampled succesfully." << std::endl;
+        std::cout << "::sample. Superquadric sampled succesfully." << sampled_points.size() << std::endl;
 
         // Copy points into mesh vertices
        simpleTriMesh vcg_sampled_points;
@@ -511,12 +514,12 @@ class Localizer : public RFModule, Localizer_IDL
 
        // Estimate radius required to obtain disk poisson sampling with the number_of_points points
        simpleTriMesh::ScalarType radius;
-       radius = triMeshSurfSampler::ComputePoissonDiskRadius(vcg_sampled_points, sampled_points.size());
+       radius = triMeshSurfSampler::ComputePoissonDiskRadius(vcg_sampled_points, 100);
 
        // Generate disk poisson samples by pruning the existing samples
        simpleTriMesh poiss_mesh;
        triMeshSampler dp_sampler(poiss_mesh);
-       triMeshSurfSampler::PoissonDiskPruningByNumber(dp_sampler, vcg_sampled_points, sampled_points.size(), radius, poiss_params, 0.005);
+       triMeshSurfSampler::PoissonDiskPruningByNumber(dp_sampler, vcg_sampled_points, 100, radius, poiss_params, 0.005);
        vcg::tri::UpdateBounding<simpleTriMesh>::Box(poiss_mesh);
 
        std::cout << "::sample. Samples decimated using PoissonDisk sampling." << std::endl;
@@ -542,25 +545,26 @@ class Localizer : public RFModule, Localizer_IDL
     }
 
     /****************************************************************/
-    vector<vector<int>> projectPointCloud(vector<Vector> &points)
+    vector<Vector> projectPointCloud(vector<Vector> &points)
     {
-        vector<vector<int>> contour;
+        vector<Vector> contour;
 
         //TODO
         for (auto point:points)
         {
             Vector pixel_lambda(3,0.0);
-            vector<int> pixel(2);
+            Vector pixel(2);
 
             Vector point_ext(4,1.0);
             point_ext.setSubvector(0,point);
 
             //yDebug() << point_ext.toString();
 
-            pixel_lambda=K*point_ext;
+            pixel_lambda=K*T*point_ext;
             //yDebug() << pixel_lambda.toString();
-            pixel[0]=(int)pixel_lambda[0]/pixel_lambda[2];
-            pixel[1]=(int)pixel_lambda[1]/pixel_lambda[2];
+            pixel[0]=pixel_lambda[0]/pixel_lambda[2];
+            pixel[1]=pixel_lambda[1]/pixel_lambda[2];
+            //yDebug() << pixel_lambda.toString();
             contour.push_back(pixel);
         }
 
@@ -584,6 +588,13 @@ class Localizer : public RFModule, Localizer_IDL
         K(0,2) = 160;
         K(1,2) = 120;
         K(2,2) = 1;
+
+        T.resize(4,4);
+        T.eye();
+
+        T(0,3)=0.0;
+        T(1,3)=0.0;
+        T(2,3)=-1.0;
 
         from_file=rf.check("file");
         if (from_file)
@@ -645,6 +656,7 @@ class Localizer : public RFModule, Localizer_IDL
             Vector p_c(3);
             string line_c;
 
+            vector<Vector> points_contour_tmp;
             vector<Vector> points_contour;
 
             yDebug() << "Object contour 3D ";
@@ -653,48 +665,50 @@ class Localizer : public RFModule, Localizer_IDL
                 istringstream iss(line_c);
                 if (!(iss>>p_c[0]>>p_c[1]>>p_c[2]))
                     break;
-                points_contour.push_back(p_c);
+                points_contour_tmp.push_back(p_c);
 
                 yDebug() << p_c.toString();
             }
 
-            for (double a=abs(points_contour[1][0] - points_contour[0][0])/100; a < 1; a+= abs(points_contour[1][0] - points_contour[0][0])/100)
+            for (double a=abs(points_contour_tmp[1][1] - points_contour_tmp[0][1])/100; a < 1; a+= abs(points_contour_tmp[1][1] - points_contour_tmp[0][1])/100)
             {
                 Vector x(3,0.0);
                 Vector dx(3,0.0);
-                dx[0] = a;
+                dx[1] = -a;
 
-                x=points_contour[1] + dx;
+                x=points_contour_tmp[0] + dx;
                 points_contour.push_back(x);
             }
 
-            for (double a=abs(points_contour[3][1] - points_contour[1][1])/100; a < 1; a+= abs(points_contour[3][1] - points_contour[1][1])/100 )
+            for (double a=abs(points_contour_tmp[2][0] - points_contour_tmp[1][0])/100; a < 1; a+= abs(points_contour_tmp[2][0] - points_contour_tmp[1][0])/100 )
             {
                 Vector x(3,0.0);
                 Vector dx(3,0.0);
-                dx[1] = a;
-                x=points_contour[3] + dx;
+                dx[0] = -a;
+                x=points_contour_tmp[1] + dx;
                 points_contour.push_back(x);
             }
 
-            for (double a=abs(points_contour[3][0] - points_contour[2][0])/100; a < 1; a+= abs(points_contour[3][0] - points_contour[2][0])/100)
-            {
-                Vector x(3,0.0);
-                Vector dx(3,0.0);
-                dx[0] = a;
-
-                x=points_contour[3] + dx;
-                points_contour.push_back(x);
-            }
-
-            for (double a=abs(points_contour[0][1] - points_contour[2][1])/100; a < 1; a+= abs(points_contour[0][1] - points_contour[2][1])/100 )
+            for (double a=abs(points_contour_tmp[3][1] - points_contour_tmp[2][1])/100; a < 1; a+= abs(points_contour_tmp[3][1] - points_contour_tmp[2][1])/100)
             {
                 Vector x(3,0.0);
                 Vector dx(3,0.0);
                 dx[1] = a;
-                x=points_contour[2] + dx;
+
+                x=points_contour_tmp[2] + dx;
                 points_contour.push_back(x);
             }
+
+            for (double a=abs(points_contour_tmp[0][0] - points_contour_tmp[3][0])/100; a < 1; a+= abs(points_contour_tmp[0][0] - points_contour_tmp[3][0])/100 )
+            {
+                Vector x(3,0.0);
+                Vector dx(3,0.0);
+                dx[0] = a;
+                x=points_contour_tmp[3] + dx;
+                points_contour.push_back(x);
+            }
+
+            //points_contour.push_back(points_contour[0]);
 
             object_contour=projectPointCloud(points_contour);
         }
@@ -796,9 +810,12 @@ class Localizer : public RFModule, Localizer_IDL
                 Vector of(3,0.0);
                 of[0]=o[0];
                 of[1]=o[1];
+                //yDebug() << "object contour " << of.toString();
                 object_contour_vtk.push_back(of);
             }
-            vtk_points_contour = unique_ptr<Points>(new Points(object_contour_vtk,20));
+            vtk_points_contour = unique_ptr<Points>(new Points(object_contour_vtk,8));
+
+
 
             vtk_points_contour->get_actor()->GetProperty()->SetColor(0.0,0.0,1.0);
 
@@ -808,11 +825,30 @@ class Localizer : public RFModule, Localizer_IDL
         // Visualize sampled superquadric
         if (rf.check("show_sampled_superq"))
         {
-            vtk_points_superq = unique_ptr<Points>(new Points(points_superq,2));
+            vtk_points_superq = unique_ptr<Points>(new Points(points_superq,20));
 
             vtk_points_superq->get_actor()->GetProperty()->SetColor(0.0,1.0,0.0);
 
             vtk_renderer->AddActor(vtk_points_superq->get_actor());
+
+            vector<Vector> points_superq_2d_tmp=projectPointCloud(points_superq);
+
+            vector<Vector> points_superq_2d;
+
+            for (auto o: points_superq_2d_tmp)
+            {
+                Vector of(3,0.0);
+                of[0]=o[0];
+                of[1]=o[1];
+                //yDebug() << "superq 2D " << of.toString();
+                points_superq_2d.push_back(of);
+            }
+
+            vtk_points_superq_2d = unique_ptr<Points>(new Points(points_superq_2d,20));
+
+            vtk_points_superq_2d->get_actor()->GetProperty()->SetColor(1.0,0.0,1.0);
+
+            vtk_renderer->AddActor(vtk_points_superq_2d->get_actor());
         }
 
         for (int i = 0; i < num_vis; i++)

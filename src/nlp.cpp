@@ -23,40 +23,78 @@ using namespace yarp::sig;
 using namespace yarp::math;
 
 /****************************************************************/
-vector<int> SuperQuadricNLP::projectPoint(const yarp::sig::Vector &point)
+Vector SuperQuadricNLP::projectPoint(const yarp::sig::Vector &point)
 {
     Vector pixel_lambda(3,0.0);
-    vector<int> pixel(2);
+    Vector pixel(2);
 
-    pixel_lambda=K*point;
-    pixel[0]=(int)pixel_lambda[0]/pixel_lambda[2];
-    pixel[1]=(int)pixel_lambda[1]/pixel_lambda[2];
+    pixel_lambda=K*T*point;
+    pixel[0]=pixel_lambda[0]/pixel_lambda[2];
+    pixel[1]=pixel_lambda[1]/pixel_lambda[2];
 
     return pixel;
 }
 
 /****************************************************************/
-bool SuperQuadricNLP::insideMask(vector<int> &pixel)
+double SuperQuadricNLP::insideMask(Vector &point)
 {
-    cv::Point2f pixel_cv;
-    pixel_cv.x=pixel[0];
-    pixel_cv.y=pixel[1];
+     int nbSides=object_contour.size();
+     int on_right=0;
+     double dist=0;
+     double min_dist=std::numeric_limits<double>::max();
+     Vector p1(2);
+     Vector p2=object_contour[nbSides-1];
+     Vector x(2);
+     Vector x1(2);
+     Vector x2(2);
 
-    vector<cv::Point> object_contour_cv;
+     for(size_t i=0; i<nbSides; i++)
+     {
+         p1=p2;
+         p2=object_contour[i];
 
-    for (auto i:object_contour)
-    {
-        cv::Point px;
-        px.x=i[0]; px.y=i[1];
-        object_contour_cv.push_back(px);
-        // cout<< " Point contour" << px.x << " " << px.y << endl;
-    }
+         //cout << "object_contour " << object_contour[i].toString() << endl;
+         // cout << "p1 " << p1.toString() << endl;
 
-    double distance = cv::pointPolygonTest(object_contour_cv, pixel_cv, true);
-    // cout<< " Point superq " << pixel_cv.x << " " << pixel_cv.y << endl;
-    // cout << "Distance "<< distance << endl;
+         x=p2-p1;
+         x*=1.0/norm(x);
+         x1=point-p1;
+         x2=point-p2;
 
-    return distance;
+         if( dot(x1,x)<=0 )
+             dist=norm(x1);
+         else if( dot(x2,x)>=0 )
+             dist=norm(x2);
+         else
+             dist=fabs(x1[1]*x[0]-x1[0]*x[1]);
+
+         if(dist<min_dist)
+         {
+             min_dist=dist;
+             if(min_dist==0)
+                 break;
+         }
+
+         if( (p1[1]<=point[1] && p2[1]<=point[1]) ||
+            (p1[1]>point[1] && p2[1]>point[1]) ||
+            (p1[0]<point[0] && p2[0]<point[0]) )
+             continue;
+
+         double signed_dist=x1[1]*x[0]-x1[0]*x[1];
+         if(x[1]<0)
+             signed_dist=-signed_dist;
+         if(signed_dist>0)
+             on_right++;
+     }
+
+     if(on_right%2==0)
+     {
+         return -min_dist;
+     }
+     else
+     {
+         return min_dist;
+     }
 }
 
 /****************************************************************/
@@ -103,9 +141,12 @@ bool SuperQuadricNLP::get_starting_point(Ipopt::Index n, bool init_x,
                                          Ipopt::Index m, bool init_lambda,
                                          Ipopt::Number *lambda)
 {
-    x[0]=centroid[0];
+    x[0]=centroid[0] + 0.05;
     x[1]=centroid[1];
     x[2]=centroid[2];
+    // x[0]=0.0;
+    // x[1]=0.0;
+    // x[2]=0.0;
     // x[3]=0.0;
     // x[4]=0.0;
     // x[5]=0.0;
@@ -148,16 +189,15 @@ bool SuperQuadricNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
     {
         p1.setSubvector(0,p);
         p1=T*p1;
-        vector<int> pixel=projectPoint(p1);
-        //if (insideMask(pixel)>0)
-        distance+=insideMask(pixel);
+        Vector pixel=projectPoint(p1);
+
+        double d=-insideMask(pixel);
+        if (d > 0)
+            distance+=d;
     }
 
     obj_value = distance/points.size();
 
-    //cout<<"Object pose " << x[0] << " " << x[1] << " "<< x[2] << " "<<x[3] << " "<<x[4] << " "<<x[5] << endl;
-
-    //cout<< "Object value " << obj_value << endl;
     return true;
 }
 
@@ -193,11 +233,18 @@ double SuperQuadricNLP::F_v(Vector &x)
     {
         p1.setSubvector(0,p);
         p1=T*p1;
-        vector<int> pixel=projectPoint(p1);
-        //if (insideMask(pixel)>0)
-        distance+=insideMask(pixel);
+        Vector pixel=projectPoint(p1);
+        double d=-insideMask(pixel);
+
+        if (d > 0)
+        {
+            // cout << "p " << p.toString() << endl;
+            // cout << "d " << d << endl;
+            distance+=d;
+        }
     }
 
+    //cout << "distance " << distance << endl;
     return distance/points.size();
 }
 
@@ -207,7 +254,7 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
 {
      Vector x_tmp(n,0.0);
      double grad_p, grad_n;
-     double eps = 1e-4;
+     double eps = 1e-8;
 
      for(Ipopt::Index i = 0;i < n; i++)
         x_tmp(i) = x[i];
@@ -217,8 +264,14 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
          x_tmp(j) += eps;
          grad_p = F_v(x_tmp);
 
+         // cout<< "x_tmp " << x_tmp.toString() << endl;
+         // cout<< "grad_p " << grad_p << endl;
+
          x_tmp(j) -= eps;
          grad_n = F_v(x_tmp);
+
+         // cout<< "x_tmp " << x_tmp.toString() << endl;
+         // cout<< "grad_n " << grad_n << endl;
 
          grad_f[j] = (grad_p-grad_n)/eps;
          cout<< "Gradient value " << grad_f[j] << endl;
@@ -268,6 +321,8 @@ bool SuperQuadricNLP::eval_g(Ipopt::Index n, const Ipopt::Number *x,
     }
 
     g[0]=obj_value*(s[0]*s[1]*s[2])/points.size();
+
+    cout << "Constraint value " << g[0] << endl;
 
     return true;
 }
@@ -399,13 +454,14 @@ void SuperQuadricNLP::finalize_solution(Ipopt::SolverReturn status,
 /****************************************************************/
 SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
                                  const vector<Vector> &points_superq_,
-                                 const vector<vector<int>> &object_contour_,
+                                 const vector<Vector> &object_contour_,
                                  const Vector &object_prop_,
                                  const Matrix &K_,
+                                 const Matrix &T_,
                                  bool analytic_) :
                                  points(points_), points_superq(points_superq_),
                                  object_contour(object_contour_),
-                                 object_prop(object_prop_), K(K_),
+                                 object_prop(object_prop_), K(K_), T(T_),
                                  analytic(analytic_)
 {
     bounds.resize(3,2);
