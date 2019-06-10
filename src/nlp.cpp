@@ -398,6 +398,7 @@ bool SuperQuadricNLP::eval_jac_g(Ipopt::Index n, const Ipopt::Number *x,
                  grad_n = G_v(x_tmp);
 
                  values[count] = (grad_p-grad_n)/(eps);
+
                  count++;
              }
          }
