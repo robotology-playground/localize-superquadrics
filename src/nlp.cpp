@@ -53,9 +53,6 @@ double SuperQuadricNLP::insideMask(Vector &point)
          p1=p2;
          p2=object_contour[i];
 
-         //cout << "object_contour " << object_contour[i].toString() << endl;
-         // cout << "p1 " << p1.toString() << endl;
-
          x=p2-p1;
          x*=1.0/norm(x);
          x1=point-p1;
@@ -142,14 +139,9 @@ bool SuperQuadricNLP::get_starting_point(Ipopt::Index n, bool init_x,
                                          Ipopt::Number *lambda)
 {
     x[0]=centroid[0];
-    x[1]=centroid[1];
+    x[1]=centroid[1] ;
     x[2]=centroid[2];
-    // x[0]=0.0;
-    // x[1]=0.0;
-    // x[2]=0.0;
-    // x[3]=0.0;
-    // x[4]=0.0;
-    // x[5]=0.0;
+
     x[3]=initial_angles[0];
     x[4]=initial_angles[1];
     x[5]=initial_angles[2];
@@ -238,13 +230,10 @@ double SuperQuadricNLP::F_v(Vector &x)
 
         if (d > 0)
         {
-            // cout << "p " << p.toString() << endl;
-            // cout << "d " << d << endl;
             distance+=d;
         }
     }
 
-    //cout << "distance " << distance << endl;
     return distance/points.size();
 }
 
@@ -264,14 +253,8 @@ bool SuperQuadricNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x,
          x_tmp(j) += eps;
          grad_p = F_v(x_tmp);
 
-         // cout<< "x_tmp " << x_tmp.toString() << endl;
-         // cout<< "grad_p " << grad_p << endl;
-
          x_tmp(j) -= eps;
          grad_n = F_v(x_tmp);
-
-         // cout<< "x_tmp " << x_tmp.toString() << endl;
-         // cout<< "grad_n " << grad_n << endl;
 
          grad_f[j] = (grad_p-grad_n)/eps;
          cout<< "Gradient value " << grad_f[j] << endl;
@@ -365,8 +348,6 @@ double SuperQuadricNLP::G_v(Vector &x)
         double F1=pow(pow( tx+ty, e2/e1) + tz, e1)-1.0;
         obj_value += F1 * F1;
     }
-
-     //cout<< "Constraint value " << obj_value*(s[0]*s[1]*s[2])/points.size() << endl;
 
     return obj_value*(s[0]*s[1]*s[2])/points.size();
 }
@@ -492,6 +473,11 @@ SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
         centroid[i]=0.5*(bounds(i,0)+bounds(i,1));
 
     // Compute orientation of point cloud
+    Vector mean(3,0.0);
+    for (auto& point: points)
+        mean += point;
+    mean *= 1.0/points.size();
+
     Matrix M=zeros(3,3);
     Matrix R(3,3);
     Matrix u(3,3);
@@ -504,12 +490,15 @@ SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
 
     for (auto& point: points)
     {
-        M(0,0) = M(0,0) + (point(1)-centroid(1))*(point(1)-centroid(1)) + (point(2)-centroid(2))*(point(2)-centroid(2));
-        M(0,1) = M(0,1) - (point(1)-centroid(1))*(point(0)-centroid(0));
-        M(0,2) = M(0,2) - (point(2)-centroid(2))*(point(0)-centroid(0));
-        M(1,1) = M(1,1) + (point(0)-centroid(0))*(point(0)-centroid(0)) + (point(2)-centroid(2))*(point(2)-centroid(2));
-        M(2,2) = M(2,2) + (point(1)-centroid(1))*(point(1)-centroid(1)) + (point(0)-centroid(0))*(point(0)-centroid(0));
-        M(1,2) = M(1,2) - (point(2)-centroid(2))*(point(1)-centroid(1));
+        double x = point(0)-mean(0);
+        double y = point(1)-mean(1);
+        double z = point(2)-mean(2);
+        M(0,0) += x*x;
+        M(0,1) += x*y;
+        M(0,2) += x*z;
+        M(1,1) += y*y;
+        M(2,2) += z*z;
+        M(1,2) += y*z;
     }
 
     M(0,0) = M(0,0)/points.size();
@@ -528,13 +517,54 @@ SuperQuadricNLP::SuperQuadricNLP(const vector<Vector> &points_,
     o=u.getCol(1);
     a=u.getCol(2);
 
-    R.setCol(0,n);
-    R.setCol(1,o);
-    R.setCol(2,a);
+    if(object_prop[0]>object_prop[1] && object_prop[0]>object_prop[2])
+    {
+        R.setCol(0,n);
+        if(object_prop[1]>object_prop[2])
+        {
+            R.setCol(1,o);
+            R.setCol(2,a);
+        }
+        else
+        {
+            R.setCol(2,o);
+            R.setCol(1,a);
+        }
+    }
+    else if(object_prop[1]>object_prop[2])
+    {
+        R.setCol(1,n);
+        if(object_prop[0]>object_prop[2])
+        {
+            R.setCol(0,o);
+            R.setCol(2,a);
+        }
+        else
+        {
+            R.setCol(2,o);
+            R.setCol(0,a);
+        }
+    }
+    else
+    {
+        R.setCol(2,n);
+        if(object_prop[0]>object_prop[1])
+        {
+            R.setCol(0,o);
+            R.setCol(1,a);
+        }
+        else
+        {
+            R.setCol(1,o);
+            R.setCol(0,a);
+        }
+    }
+
+    if(det(R)<0)
+        R.setCol(0, -1.0*R.getCol(0));
 
     initial_angles.resize(3,0.0);
     initial_angles = dcm2rpy(R);
-
 }
 
 /****************************************************************/

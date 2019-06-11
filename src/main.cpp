@@ -289,6 +289,7 @@ class Localizer : public RFModule, Localizer_IDL
     double random_sample;
     bool from_file;
     bool test_derivative;
+    bool solve_problem;
     bool viewer_enabled;
     bool analytic_gradient;
     bool closing;
@@ -413,12 +414,12 @@ class Localizer : public RFModule, Localizer_IDL
     Vector localizeSuperquadric() const
     {
         Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
-        app->Options()->SetNumericValue("tol",1e-3);
-        app->Options()->SetNumericValue("constr_viol_tol",1e-4);
+        app->Options()->SetNumericValue("tol",1e-2);
+        app->Options()->SetNumericValue("constr_viol_tol",1e-2);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
         app->Options()->SetStringValue("nlp_scaling_method","none");
-        app->Options()->SetIntegerValue("max_iter", 300);
+        app->Options()->SetIntegerValue("max_iter", solve_problem?300:0);
         app->Options()->SetStringValue("hessian_approximation","limited-memory");
         app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
         app->Options()->SetIntegerValue("print_level",test_derivative?5:0);
@@ -636,6 +637,18 @@ class Localizer : public RFModule, Localizer_IDL
                 istringstream iss(line);
                 if (!(iss>>p[0]>>p[1]>>p[2]))
                     break;
+
+                if (rf.check("apply-noise"))
+                {
+                    double std;
+                    if (const Bottle *ptr=rf.find("apply-noise").asList())
+                        std=ptr->get(0).asDouble();
+                    else
+                        std = 0.005;
+                    p[0]+=Random::normal(0.0, std);
+                    p[1]+=Random::normal(0.0, std);
+                    p[2]+=Random::normal(0.0, std);
+                }
                 all_points.push_back(p);
 
                 fill(c_.begin(),c_.end(),120);
@@ -729,6 +742,7 @@ class Localizer : public RFModule, Localizer_IDL
         analytic_gradient=rf.check("analytic-gradient");
         test_derivative=rf.check("test-derivative");
         viewer_enabled=!rf.check("disable-viewer");
+        solve_problem=!rf.check("test");
 
         vector<double> color={0.0,0.3,0.6};
         if (rf.check("color"))
@@ -871,7 +885,7 @@ class Localizer : public RFModule, Localizer_IDL
                 vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(new_r, color,opacity)));
                 vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
 
-                vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,2)));
+                vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,4)));
                 vtk_out_points.push_back(unique_ptr<Points>(new Points(out_points,4)));
                 vtk_dwn_points.push_back(unique_ptr<Points>(new Points(dwn_points,1)));
 
@@ -889,11 +903,12 @@ class Localizer : public RFModule, Localizer_IDL
                 vtk_superquadrics.push_back(unique_ptr<Superquadric>(new Superquadric(r, color,opacity)));
                 vtk_renderer->AddActor(vtk_superquadrics[i]->get_actor());
 
-                vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,2)));
+                vtk_all_points.push_back(unique_ptr<Points>(new Points(all_points,4)));
                 vtk_out_points.push_back(unique_ptr<Points>(new Points(out_points,4)));
                 vtk_dwn_points.push_back(unique_ptr<Points>(new Points(dwn_points,1)));
 
-                vtk_all_points[i]->set_colors(all_colors);
+                //vtk_all_points[i]->set_colors(all_colors);
+                vtk_all_points[i]->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
                 vtk_out_points[i]->get_actor()->GetProperty()->SetColor(1.0,0.0,0.0);
                 vtk_dwn_points[i]->get_actor()->GetProperty()->SetColor(1.0,1.0,0.0);
 
