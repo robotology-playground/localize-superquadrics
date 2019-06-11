@@ -141,7 +141,7 @@ bool SuperQuadricNLP::get_starting_point(Ipopt::Index n, bool init_x,
                                          Ipopt::Index m, bool init_lambda,
                                          Ipopt::Number *lambda)
 {
-    x[0]=centroid[0] + 0.05;
+    x[0]=centroid[0];
     x[1]=centroid[1];
     x[2]=centroid[2];
     // x[0]=0.0;
@@ -398,7 +398,6 @@ bool SuperQuadricNLP::eval_jac_g(Ipopt::Index n, const Ipopt::Number *x,
                  grad_n = G_v(x_tmp);
 
                  values[count] = (grad_p-grad_n)/(eps);
-
                  count++;
              }
          }

@@ -417,9 +417,9 @@ class Localizer : public RFModule, Localizer_IDL
         app->Options()->SetNumericValue("constr_viol_tol",1e-4);
         app->Options()->SetIntegerValue("acceptable_iter",0);
         app->Options()->SetStringValue("mu_strategy","adaptive");
-        app->Options()->SetStringValue("nlp_scaling_method","gradient-based");
+        app->Options()->SetStringValue("nlp_scaling_method","none");
         app->Options()->SetIntegerValue("max_iter", 300);
-        app->Options()->SetStringValue("hessian_approximation","exact");
+        app->Options()->SetStringValue("hessian_approximation","limited-memory");
         app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
         app->Options()->SetIntegerValue("print_level",test_derivative?5:0);
         app->Options()->SetStringValue("derivative_test_print_all", test_derivative?"yes":"no");
