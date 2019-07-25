@@ -34,7 +34,7 @@ include_directories(${PROJECT_SOURCE_DIR}/src ${IPOPT_INCLUDE_DIRS})
 yarp_add_idl(IDL_GEN_FILES src/idl.thrift)
 source_group("IDL Files" FILES src/idl.thrift)
 
-add_executable(${PROJECT_NAME} src/nlp.h src/nlp.cpp src/main.cpp src/idl.thrift ${IDL_GEN_FILES})
+add_executable(${PROJECT_NAME} src/nlp.h src/nlp.cpp src/nlp_vertical.h src/nlp_vertical.cpp src/main.cpp src/idl.thrift ${IDL_GEN_FILES})
 set_property(TARGET ${PROJECT_NAME} APPEND_STRING PROPERTY LINK_FLAGS " ${IPOPT_LINK_FLAGS}")
 
 target_link_libraries(${PROJECT_NAME} ${YARP_LIBRARIES} ${IPOPT_LIBRARIES} ${VTK_LIBRARIES} ctrlLib)

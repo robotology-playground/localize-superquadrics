@@ -49,6 +49,7 @@
 #include <vtkInteractorStyleSwitch.h>
 
 #include "nlp.h"
+#include "nlp_vertical.h"
 #include "test.h"
 #include "src/Localizer_IDL.h"
 
@@ -100,7 +101,7 @@ public:
             }
         }
 
-        iren->GetRenderWindow()->SetWindowName("Find Superquadric");
+        iren->GetRenderWindow()->SetWindowName("Localize Superquadric");
         iren->Render();
     }
 };
@@ -288,7 +289,6 @@ class Localizer : public RFModule, Localizer_IDL
 
     // New
     int num_vis;
-    string object_name;
     Vector object_prop;
     PointCloudXYZRGBA point_cloud;
 
@@ -318,6 +318,125 @@ class Localizer : public RFModule, Localizer_IDL
     bool attach(RpcServer &source)
     {
       return this->yarp().attachAsServer(source);
+    }
+
+    bool askObjectPropToOPC(const string &object_name)
+    {
+        // Ask object dimensions and shape to OPC
+        Bottle cmd,reply;
+        cmd.addVocab(Vocab::encode("ask"));
+        Bottle &content=cmd.addList();
+        Bottle &cond_1=content.addList();
+        cond_1.addString("entity");
+        cond_1.addString("==");
+        cond_1.addString("geometric_properties");
+        content.addString("&&");
+        Bottle &cond_2=content.addList();
+        cond_2.addString("name");
+        cond_2.addString("==");
+        cond_2.addString(object_name);
+
+        if(rpcOPC.getOutputCount() < 1)
+        {
+            yError("missing connection to OPC!");
+            return false;
+        }
+
+        rpcOPC.write(cmd, reply);
+
+        if(reply.size()>1)
+        {
+            if(reply.get(0).asVocab()==Vocab::encode("ack"))
+            {
+                if (Bottle *b=reply.get(1).asList())
+                {
+                    if (Bottle *b1=b->get(1).asList())
+                    {
+                        cmd.clear();
+                        int id=b1->get(0).asInt();
+                        cmd.addVocab(Vocab::encode("get"));
+                        Bottle &info=cmd.addList();
+                        Bottle &info2=info.addList();
+                        info2.addString("id");
+                        info2.addInt(id);
+                        Bottle &info3=info.addList();
+                        info3.addString("propSet");
+                        Bottle &info4=info3.addList();
+                        info4.addString("object_dim_and_shape");
+                    }
+                    else
+                    {
+                        yError("no object id provided by OPC!");
+                        return false;
+                    }
+                }
+                else
+                {
+                    yError("uncorrect reply from OPC!");
+                    return false;
+                }
+
+                Bottle reply;
+                if (rpcOPC.write(cmd,reply))
+                {
+                    if (reply.size()>1)
+                    {
+                        if (reply.get(0).asVocab()==Vocab::encode("ack"))
+                        {
+                            if (Bottle *b=reply.get(1).asList())
+                            {
+                                if (Bottle *b1=b->find("object_dim_and_shape").asList())
+                                {
+                                    object_prop[0]=b1->get(0).asDouble();
+                                    object_prop[1]=b1->get(1).asDouble();
+                                    object_prop[2]=b1->get(2).asDouble();
+                                    object_prop[3]=b1->get(3).asDouble();
+                                    object_prop[4]=b1->get(4).asDouble();
+
+                                    yInfo() << "Received object dimension and shape " << object_prop.toString();
+                                    return true;
+                                }
+                                else
+                                {
+                                    yError("object_dim_and_shape field not found in the OPC reply!");
+                                    return false;
+                                }
+                            }
+                            else
+                            {
+                                yError("uncorrect reply structure received!");
+                                return false;
+                            }
+                        }
+                        else
+                        {
+                            yError("Failure in reply for object_dim_and_shape!");
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        yError("reply size for object_dim_and_shape less than 1!");
+                        return false;
+                    }
+                }
+                else
+                {
+                    yError("no reply from second OPC query!");
+                    return false;
+                }
+            }
+            else
+            {
+                yError("Failure in reply for object id!");
+                return false;
+            }
+        }
+        else
+        {
+            yError("reply size for object id less than 1!");
+            return false;
+        }
     }
 
     /****************************************************************/
@@ -412,6 +531,35 @@ class Localizer : public RFModule, Localizer_IDL
 
         double t0=Time::now();
         Ipopt::SmartPtr<SuperQuadricNLP> nlp=new SuperQuadricNLP(dwn_points, object_prop, analytic_gradient);
+        Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
+        double t1=Time::now();
+
+        Vector r=nlp->get_result();
+        yInfo()<<"center   = ("<<r.subVector(0,2).toString(3,3)<<")";
+        yInfo()<<"orientation    ="<<r.subVector(3,5).toString(3,3)<<"[deg]";
+        yInfo()<<"found in ="<<t1-t0<<"[s]";
+
+        return r;
+    }
+
+    /****************************************************************/
+    Vector localizeVerticalSuperquadric() const
+    {
+        Ipopt::SmartPtr<Ipopt::IpoptApplication> app=new Ipopt::IpoptApplication;
+        app->Options()->SetNumericValue("tol",1e-6);
+        app->Options()->SetIntegerValue("acceptable_iter",0);
+        app->Options()->SetStringValue("mu_strategy","adaptive");
+        app->Options()->SetStringValue("nlp_scaling_method","gradient-based");
+        app->Options()->SetIntegerValue("max_iter", 1000);
+        app->Options()->SetStringValue("hessian_approximation","limited-memory");
+        app->Options()->SetStringValue("fixed_variable_treatment","make_parameter");
+        app->Options()->SetStringValue("derivative_test",test_derivative?"first-order":"none");
+        app->Options()->SetIntegerValue("print_level",test_derivative?5:0);
+        app->Options()->SetStringValue("derivative_test_print_all", test_derivative?"yes":"no");
+        app->Initialize();
+
+        double t0=Time::now();
+        Ipopt::SmartPtr<SuperQuadricVerticalNLP> nlp=new SuperQuadricVerticalNLP(dwn_points, object_prop, analytic_gradient);
         Ipopt::ApplicationReturnStatus status=app->OptimizeTNLP(GetRawPtr(nlp));
         double t1=Time::now();
 
@@ -767,116 +915,111 @@ class Localizer : public RFModule, Localizer_IDL
                     all_colors.push_back(c);
                 }
 
-                // Ask object dimensions and shape to OPC
-                Bottle cmd,reply;
-                cmd.addVocab(Vocab::encode("ask"));
-                Bottle &content=cmd.addList();
-                Bottle &cond_1=content.addList();
-                cond_1.addString("entity");
-                cond_1.addString("==");
-                cond_1.addString("geometric_properties");
-                content.addString("&&");
-                Bottle &cond_2=content.addList();
-                cond_2.addString("name");
-                cond_2.addString("==");
-                cond_2.addString(object_name);
-
-                if(rpcOPC.getOutputCount() < 1)
+                if(!askObjectPropToOPC(object_name))
                 {
-                    yError("missing connection to OPC!");
-
                     vector<double> r_vect(11, 0.0);
                     return r_vect;
-                }
-
-                rpcOPC.write(cmd, reply);
-
-                if(reply.size()>1)
-                {
-                    if(reply.get(0).asVocab()==Vocab::encode("ack"))
-                    {
-                        if (Bottle *b=reply.get(1).asList())
-                        {
-                            if (Bottle *b1=b->get(1).asList())
-                            {
-                                cmd.clear();
-                                int id=b1->get(0).asInt();
-                                cmd.addVocab(Vocab::encode("get"));
-                                Bottle &info=cmd.addList();
-                                Bottle &info2=info.addList();
-                                info2.addString("id");
-                                info2.addInt(id);
-                                Bottle &info3=info.addList();
-                                info3.addString("propSet");
-                                Bottle &info4=info3.addList();
-                                info4.addString("object_dim_and_shape");
-                            }
-                            else
-                            {
-                                yError("no object id provided by OPC!");
-                            }
-                        }
-                        else
-                        {
-                            yError("uncorrect reply from OPC!");
-                        }
-
-                        Bottle reply;
-                        if (rpcOPC.write(cmd,reply))
-                        {
-                            if (reply.size()>1)
-                            {
-                                if (reply.get(0).asVocab()==Vocab::encode("ack"))
-                                {
-                                    if (Bottle *b=reply.get(1).asList())
-                                    {
-                                        if (Bottle *b1=b->find("object_dim_and_shape").asList())
-                                        {
-                                            object_prop[0]=b1->get(0).asDouble();
-                                            object_prop[1]=b1->get(1).asDouble();
-                                            object_prop[2]=b1->get(2).asDouble();
-                                            object_prop[3]=b1->get(3).asDouble();
-                                            object_prop[4]=b1->get(4).asDouble();
-
-                                            yInfo() << "Received object dimension and shape " << object_prop.toString();
-                                        }
-                                        else
-                                        {
-                                            yError("object_dim_and_shape field not found in the OPC reply!");
-                                        }
-                                    }
-                                    else
-                                    {
-                                        yError("uncorrect reply structure received!");
-                                    }
-                                }
-                                else
-                                {
-                                    yError("Failure in reply for object_dim_and_shape!");
-                                }
-                            }
-                            else
-                            {
-                                yError("reply size for object_dim_and_shape less than 1!");
-                            }
-                        }
-                        else
-                            yError("no reply from second OPC query!");
-                    }
-                    else
-                    {
-                        yError("Failure in reply for object id!");
-                    }
-                }
-                else
-                {
-                    yError("reply size for object id less than 1!");
                 }
 
                 removeOutliers();
                 sampleInliers();
 
                 Vector r=localizeSuperquadric();
+
+                vtk_all_points[object_num]->set_points(all_points);
+                vtk_all_points[object_num]->set_colors(all_colors);
+                vtk_out_points[object_num]->set_points(out_points);
+                vtk_dwn_points[object_num]->set_points(dwn_points);
+                vtk_superquadrics[object_num]->set_parameters(r);
+
+                vtk_camera->SetPosition(r[0]+0.5,r[1],r[2]+0.4);
+                vtk_camera->SetFocalPoint(r.subVector(0,2).data());
+                vtk_camera->SetViewUp(0.0,0.0,1.0);
+
+                // TEMPORARY FIX
+                vector<double> r_vect;
+                for (size_t i=0; i<r.size(); i++)
+                {
+                    r_vect.push_back(r[i]);
+                }
+
+                return r_vect;
+            }
+            else
+            {
+                yError() << "Point cloud size 0!";
+
+                //Vector r(11,0.0);
+
+                vector<double> r_vect;
+                for (size_t i=0; i<11; i++)
+                {
+                    r_vect.push_back(0.0);
+                }
+
+                return r_vect;
+
+                //return r;
+            }
+
+        }
+        else
+        {
+            yError() << "No point cloud bottle received!";
+
+            vector<double> r_vect;
+            for (size_t i=0; i<11; i++)
+            {
+                r_vect.push_back(0.0);
+            }
+
+            return r_vect;
+
+            //Vector r(11,0.0);
+            //return r;
+        }
+    }
+
+    /****************************************************************/
+    vector<double> localize_vertical_superq(const string &object_name, const Bottle &points_bottle, int object_num)
+    {
+        bool success = point_cloud.fromBottle(points_bottle);
+        if (success)
+        {
+            if (point_cloud.size()>0)
+            {
+                LockGuard lg(mutex);
+
+                all_points.clear();
+                all_colors.clear();
+                in_points.clear();
+                out_points.clear();
+                dwn_points.clear();
+
+                Vector p(3);
+                vector<unsigned char> c(3);
+                for (int i=0; i<point_cloud.size(); i++)
+                {
+                    p[0]=point_cloud(i).x;
+                    p[1]=point_cloud(i).y;
+                    p[2]=point_cloud(i).z;
+                    c[0]=point_cloud(i).r;
+                    c[1]=point_cloud(i).g;
+                    c[2]=point_cloud(i).b;
+                    all_points.push_back(p);
+                    all_colors.push_back(c);
+                }
+
+                if(!askObjectPropToOPC(object_name))
+                {
+                    vector<double> r_vect(11, 0.0);
+                    return r_vect;
+                }
+
+                removeOutliers();
+                sampleInliers();
+
+                Vector r=localizeVerticalSuperquadric();
 
                 vtk_all_points[object_num]->set_points(all_points);
                 vtk_all_points[object_num]->set_colors(all_colors);

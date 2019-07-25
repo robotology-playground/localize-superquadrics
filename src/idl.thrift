@@ -58,6 +58,14 @@
 	 list<double> localize_superq(1: string &object_names, 2: Bottle &points, 3: i32 object_num);
 
      /**
+     * Localize the superquadric pose (position and Euler angles)
+     * @param points is a list of DataXYZ of the object
+     * @param object_name is the object name
+     * @return a 5D Vector containing the dimensions and shape
+     */
+     list<double> localize_vertical_superq(1: string &object_names, 2: Bottle &points, 3: i32 object_num);
+
+     /**
      * Set the options to remove outliers from point cloud
      * @param values is a bottle containing the number of points
      * and the radius used by the filter
