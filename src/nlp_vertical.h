@@ -33,6 +33,7 @@ protected:
     yarp::sig::Matrix bounds;
     yarp::sig::Vector result;
     yarp::sig::Vector object_prop;
+    yarp::sig::Matrix post_orient;
 
     /****************************************************************/
     bool get_nlp_info(Ipopt::Index &n, Ipopt::Index &m, Ipopt::Index &nnz_jac_g,

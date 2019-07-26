@@ -93,6 +93,7 @@ bool SuperQuadricVerticalNLP::eval_f(Ipopt::Index n, const Ipopt::Number *x,
     angles[2] = y;
 
     Matrix T=rpy2dcm(angles);
+    T.setSubmatrix(T.submatrix(0,2,0,2)*post_orient, 0,0);
     T.setSubcol(c,0,3);
     T=SE3inv(T);
 
@@ -146,12 +147,14 @@ bool SuperQuadricVerticalNLP::eval_grad_f(Ipopt::Index n, const Ipopt::Number *x
         Rz[1][1] = cy;
         Rz[0][1] = -sy;
         Rz[1][0] = sy;
+        Rz = Rz*post_orient;
 
         Matrix dRz(3,3);
         dRz[0][0] = -sy;
         dRz[1][1] = -sy;
         dRz[0][1] = -cy;
         dRz[1][0] = cy;
+        dRz = dRz*post_orient;
 
         Matrix invRz = Rz.transposed();
 
@@ -317,9 +320,11 @@ void SuperQuadricVerticalNLP::finalize_solution(Ipopt::SolverReturn status,
     result.resize(superq_n);
     for (Ipopt::Index i=0; i<3; i++)
         result[i]=x[i];
-    for (Ipopt::Index i=3; i<5; i++)
-        result[i]=0.0;
-    result[5]=x[5]*180.0/M_PI;
+    Vector rpy(3,0.0);
+    rpy[2]=x[5];
+    Vector o = dcm2rpy(rpy2dcm(rpy).submatrix(0,2,0,2)*post_orient);
+    for (Ipopt::Index i=0; i<3; i++)
+        result[i+3]=o[i]*180.0/M_PI;
     for (Ipopt::Index i=0; i<3; i++)
         result[i+6]=object_prop[i];
     for (Ipopt::Index i=3; i<5; i++)
@@ -451,22 +456,44 @@ SuperQuadricVerticalNLP::SuperQuadricVerticalNLP(const vector<Vector> &points_,
     if(det(R)<0)
         R.setCol(0, -1.0*R.getCol(0));
 
-    // Relign with vertical
+    // Find most vertical axis
+    Vector most_vert(3);
+    Vector axis(4,0.0);
+    if(fabs(R[2][0]) > fabs(R[2][1]) && fabs(R[2][0]) > fabs(R[2][2]))
+    {
+        most_vert = R.getCol(0);
+        axis[1] = 1.0;
+        axis[3] = -M_PI/2;
+    }
+    else if(fabs(R[2][1]) > fabs(R[2][2]))
+    {
+        most_vert = R.getCol(1);
+        axis[0] = 1.0;
+        axis[3] = M_PI/2;
+    }
+    else
+    {
+        most_vert = R.getCol(2);
+    }
 
-    Vector z_pc = R.getCol(2);
+    post_orient = axis2dcm(axis).submatrix(0,2,0,2);
+
+    // Realign with vertical
     Vector z(3,0.0);
     z[2] = 1.0;
-    Vector tu = cross(z_pc, z);
+    Vector tu = cross(most_vert, z);
     double sin_t = norm(tu);
     if (sin_t>std::numeric_limits<double>::epsilon())
     {
-        double cos_t = dot(z_pc, z);
+        double cos_t = most_vert[2];
         double theta = atan2(sin_t, cos_t);
         Vector o(4);
         o.setSubvector(0, 1.0/sin_t * tu);
         o[3] = theta;
         R = axis2dcm(o).submatrix(0,2, 0,2) * R;
     }
+
+    R = R*post_orient.transposed();
 
     initial_angle = atan2(R[2][2]*0.5*(R[1][0]-R[0][1]), R[2][2]*0.5*(R[0][0]+R[1][1]));
 }
