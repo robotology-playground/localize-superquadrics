@@ -295,6 +295,7 @@ class Localizer : public RFModule, Localizer_IDL
     // The rpc port now is thrifted and used also for
     // localizing the superquadric
     RpcServer rpcService;
+    bool force_vertical;
 
     // This rpc to communicate with OPC
     RpcClient rpcOPC;
@@ -574,6 +575,8 @@ class Localizer : public RFModule, Localizer_IDL
     /****************************************************************/
     bool configure(ResourceFinder &rf) override
     {
+        force_vertical = rf.check("force-vertical");
+
         Rand::init();
 
         object_prop.resize(5);
@@ -888,6 +891,11 @@ class Localizer : public RFModule, Localizer_IDL
     /****************************************************************/
     vector<double> localize_superq(const string &object_name, const Bottle &points_bottle, int object_num)
     {
+        if(force_vertical)
+        {
+            return localize_vertical_superq(object_name, points_bottle, object_num);
+        }
+
         bool success = point_cloud.fromBottle(points_bottle);
         if (success)
         {
