@@ -12,6 +12,7 @@
 
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <cmath>
 #include <vector>
 #include <set>
@@ -59,7 +60,7 @@ using namespace yarp::sig;
 using namespace yarp::math;
 using namespace iCub::ctrl;
 
-Mutex mutex;
+mutex mtx;
 
 /****************************************************************/
 class UpdateCommand : public vtkCommand
@@ -89,7 +90,7 @@ public:
     void Execute(vtkObject *caller, unsigned long vtkNotUsed(eventId),
                  void *vtkNotUsed(callData))
     {
-        LockGuard lg(mutex);
+        lock_guard<mutex> lck(mtx);
         vtkRenderWindowInteractor* iren=static_cast<vtkRenderWindowInteractor*>(caller);
         if (closing!=nullptr)
         {
@@ -901,7 +902,7 @@ class Localizer : public RFModule, Localizer_IDL
         {
             if (point_cloud.size()>0)
             {
-                LockGuard lg(mutex);
+                lock_guard<mutex> lck(mtx);
 
                 all_points.clear();
                 all_colors.clear();
@@ -996,7 +997,7 @@ class Localizer : public RFModule, Localizer_IDL
         {
             if (point_cloud.size()>0)
             {
-                LockGuard lg(mutex);
+                lock_guard<mutex> lck(mtx);
 
                 all_points.clear();
                 all_colors.clear();
